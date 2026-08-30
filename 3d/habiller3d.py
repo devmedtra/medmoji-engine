@@ -322,47 +322,10 @@ def main():
     # ⭐ Léger : une topologie en quads réguliers n'a plus besoin d'être
     # matraquée. Les 12 passes précédentes servaient à rattraper un maillage de
     # scan, et c'est ce matraquage qui faisait rentrer le vêtement sous la peau.
-    # ── LE GENOU, LISSÉ LOCALEMENT ───────────────────────────────────────
-    # 🔴 Ce n'est PAS une arête géométrique. Profil du rayon de la jambe, mesuré
-    # sur le modèle : il décroît régulièrement de 0,0413 à 76 % jusqu'à 0,0326
-    # à 89,5 %, sans saut. Mais entre 81,0 et 82,0 % il perd **7,2 %** là où il
-    # perd 0,5 % par point ailleurs, et la rugosité de la section tombe de
-    # moitié (écart-type 0,0071 → 0,0038). Cette transition brutale de courbure
-    # suffit à créer une ligne à l'OMBRAGE.
-    #
-    # Origine : la reconstruction image → 3D interprète une ombre comme du
-    # relief — « otherwise you'll have baked-in lighting and shadows on your
-    # assets ». Le corps 2D d'origine a une démarcation de 1,3 au genou ;
-    # TRELLIS la rend à 10,5, huit fois plus forte.
-    #
-    # ⭐ On lisse donc LÀ OÙ C'EST MESURÉ, pas partout : un groupe de sommets
-    # sur 79-85 % de la hauteur, et un lissage fort limité à ce groupe. Le
-    # reste du vêtement n'est pas touché.
-    gv = pantalon.vertex_groups.new(name='genou')
-    z_g0 = hi.z - H * 0.85
-    z_g1 = hi.z - H * 0.79
-    mw2 = pantalon.matrix_world
-    idx, poids_g = [], []
-    for v in pantalon.data.vertices:
-        z = (mw2 @ v.co).z
-        if z_g0 <= z <= z_g1:
-            # fondu aux bords du groupe : un lissage à bord franc crée à son
-            # tour une démarcation, exactement le défaut qu'on retire
-            t = (z - z_g0) / (z_g1 - z_g0)
-            idx.append(v.index)
-            poids_g.append(float(np.sin(np.pi * t) ** 0.5))
-    for i, w in zip(idx, poids_g):
-        gv.add([i], w, 'REPLACE')
-    print(f'  groupe « genou » : {len(idx):,} sommets (79 → 85 %)')
-
-    sml = pantalon.modifiers.new('genou', 'LAPLACIANSMOOTH')
-    sml.lambda_factor = 20.0
-    sml.iterations = 10
-    sml.use_volume_preserve = True
-    sml.vertex_group = 'genou'
-    sml.use_x = sml.use_y = sml.use_z = True
-    bpy.ops.object.modifier_apply(modifier=sml.name)
-
+    # ⚠️ Le lissage local du genou a été retiré : il servait à atténuer une
+    # ligne qui venait de l'OMBRE de l'image d'entrée, et que le delighting de
+    # SF3D supprime à la source. Traiter un défaut d'ombrage par de la
+    # géométrie ne marchait pas — 1 pixel changé sur 4,2 millions.
     sm = pantalon.modifiers.new('lis', 'LAPLACIANSMOOTH')
     sm.lambda_factor = 2.0
     sm.iterations = 3
@@ -393,8 +356,12 @@ def main():
     sw = pantalon.modifiers.new('sw', 'SHRINKWRAP')
     sw.target = corps
     sw.wrap_method = 'NEAREST_SURFACEPOINT'
-    sw.vertex_group = 'genou'
-    sw.invert_vertex_group = True
+    # 🔴 PLUS D'EXEMPTION AU GENOU. Elle avait été posée pour qu'un lissage
+    # local y survive ; mesurée, elle était déjà mauvaise (16,6 → 21,0 et une
+    # ligne nouvelle à la frontière du groupe) et je ne l'avais pas retirée.
+    # Résultat visible : le corps perçait au genou, deux déchirures que Med a
+    # entourées. Le delighting de SF3D règle la ligne à la source — le lissage
+    # local n'a plus lieu d'être, et le Shrinkwrap redevient global.
     sw.offset = H * 0.0035
     bpy.ops.object.modifier_apply(modifier=sw.name)
 

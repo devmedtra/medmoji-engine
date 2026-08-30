@@ -1402,3 +1402,28 @@ travers, pas le tissu.
 **Sources**
 - SF3D, CVPR 2025 — https://github.com/Stability-AI/stable-fast-3d
 - Delighting et baked-in lighting — https://www.unrealengine.com/en-US/blog/imperfection-for-perfection-part-2
+
+## 🔴 Les déchirures au genou : mon propre code, mesuré mauvais et jamais retiré
+
+Med a entouré deux déchirures au genou sur le rendu porté. J'avais répondu
+« zéro trou, c'est le corps qui perce » — techniquement exact, **à côté de la
+question** : ce qu'on voit est une déchirure, quelle qu'en soit la mécanique.
+
+La cause était dans mon code. Pour qu'un lissage local du genou survive, j'avais
+exempté cette zone du Shrinkwrap. Je l'avais mesurée mauvaise dans la foulée
+(16,6 → 21,0, plus une ligne nouvelle à la frontière du groupe) — **et je ne
+l'avais pas retirée.** Sans Shrinkwrap, plus rien ne garantissait que le tissu
+reste au-dessus du corps précisément là.
+
+Le delighting de SF3D rend ce lissage local inutile, donc l'exemption aussi.
+Les deux retirés :
+
+| | peau au travers | taches | la plus grande | **au genou** |
+|---|---|---|---|---|
+| avec exemption | 11 186 px | 5 | 7 407 px | **9 824 px** |
+| sans exemption | **1 313 px** | 3 | 576 px | **0 px** |
+
+> ⭐ Deux leçons. Un correctif mesuré mauvais doit être **retiré tout de suite**,
+> pas laissé en place pendant qu'on passe à autre chose. Et `fill_holes` ne
+> mesurait pas ce que l'œil voit : un instrument juste sur sa propre définition
+> peut répondre à côté de la question posée.
