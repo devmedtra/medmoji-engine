@@ -689,3 +689,45 @@ torse et les pieds.
 | `std(L)` post/pre | 0,30 / 0,44 / 0,61 | **1,00 / 1,00 / 1,01** |
 | erreur sur L\* (gamut) | 10,7 | **0,0** |
 | vêtement non teint | 19 427 px | **4 316 px** |
+
+## Le liseré, et un critère du conseil retiré par le conseil
+
+Verdict suivant : ceinture et couture jugées disparues par un membre, la couture
+jugée persistante par un autre. **Départagé par la mesure** — saut de luminance
+dans la zone 66-72 % : **8,7 → 4,1** (−53 %). Réduite de moitié, pas éliminée ;
+le saut maximal s'est déplacé à 84,2 %, l'ourlet, qui est légitime.
+
+Défaut restant nommé par le conseil : des **liserés blancs sur les deux flancs**,
+« plus saillants que la couture précédente à cause du contraste avec les
+couleurs saturées ». Mesuré : 1 116 px, **médiane à 2 px du masque**, tous hors
+de la silhouette du corps nu. Ils échappaient à la reconstruction géodésique
+parce que, très clairs, leur ΔE dépasse 25.
+
+> ⭐ **Un pixel hors de la silhouette du corps ne peut pas être de la peau.** Les
+> reprendre ne se paie d'aucun risque : c'est la seule zone où une dilatation
+> reste légitime, et elle est bornée par une propriété du corps, pas par un
+> rayon choisi. 1 116 → **305 px**.
+
+Une erreur au passage, attrapée par son propre garde-fou : sans `& ~mv`, le
+compteur du liseré incluait tout le vêtement déjà masqué qui déborde du corps —
+**68 710 px au lieu de 1 116** — et le garde-fou a refusé la reprise. Il a
+fonctionné exactement comme prévu : il a bloqué une valeur absurde au lieu de
+l'écrire.
+
+## Le conseil retire son propre critère
+
+`|median(ΔL*)| ≤ 1,5` : rejeté, mesure à l'appui. Teindre un tissu clair en bleu
+marine **doit** l'assombrir — la médiane vaut −55,2. Le membre qui l'avait posé
+l'a retiré : « vous avez raison, il est faux pour une teinture dont le cahier des
+charges inclut un assombrissement ».
+
+Il l'a remplacé par un critère meilleur que le mien : `std(L)` seul ne voit pas
+une transformation qui **inverse localement ombres et lumières**. La corrélation
+de rang de Spearman entre L\*_source et L\*_post, elle, la verrait.
+
+| teinte | `std(L)` post/pre | Spearman ρ (seuil 0,95) |
+|---|---|---|
+| olive | 1,01 | **0,9999** |
+| rouge | 1,01 | **0,9999** |
+| bleu | 1,00 | **0,9999** |
+| violet | 1,01 | **0,9999** |

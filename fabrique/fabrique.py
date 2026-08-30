@@ -1004,6 +1004,29 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
     if morsure >= 200:
         mv = mv & ~peau_nue
 
+    # ⭐ LE LISERÉ DU BORD : HORS DE LA SILHOUETTE, DONC SANS RISQUE.
+    # Le conseil, 30 août : « il reste des liserés blancs très lumineux sur les
+    # deux flancs, plus saillants que la couture précédente à cause du contraste
+    # avec les couleurs saturées ». Mesuré : 1 116 px, médiane à 2 px du masque,
+    # tous en dehors de la silhouette du corps nu. Ils échappaient à la
+    # reconstruction géodésique parce que, très clairs, leur ΔE dépasse 25.
+    #
+    # Un pixel hors de la silhouette du corps NE PEUT PAS être de la peau. Les
+    # reprendre ne se paie d'aucun risque — c'est la seule zone où une
+    # dilatation reste légitime, et elle est bornée par une propriété du corps,
+    # pas par un rayon choisi.
+    hors_corps = (np.asarray(habille)[:, :, 3] > 200) & ~(np.asarray(src)[:, :, 3] > 16)
+    # ⚠️ `& ~mv` : sans lui, le compteur inclut tout le vêtement déjà masqué qui
+    # déborde du corps — 68 710 px au lieu de 1 116, et le garde-fou ci-dessous
+    # rejetait à tort une reprise parfaitement légitime.
+    liseré = ndimage.binary_dilation(mv, np.ones((7, 7))) & hors_corps & ~mv
+    if liseré.sum() > mv.sum() * 0.02:
+        print(f'  ⚠️ liseré anormalement gros ({int(liseré.sum()):,} px) — ignoré')
+    else:
+        n0 = int(mv.sum())
+        mv = mv | liseré
+        print(f'  liseré du bord repris : +{int(mv.sum()) - n0:,} px (hors silhouette)')
+
     mv = mv & (np.asarray(mq.filter(ImageFilter.GaussianBlur(4))) > 40)
     Image.fromarray((mv * 255).astype(np.uint8)).save(f'{SORTIE}/{nom}.masque.png')
 
