@@ -36,6 +36,7 @@ import os
 
 import bpy
 import bmesh
+import numpy as np
 from mathutils import Vector
 
 ARGS = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
@@ -99,6 +100,38 @@ def main():
     corps.name = 'corps'
     lo, hi = boite(corps)
     H = hi.z - lo.z
+
+    # ── L'ORIENTATION SE MESURE ──────────────────────────────────────────
+    # 🔴 Deux générateurs, deux conventions. Mesuré sur la direction des
+    # ORTEILS — un repère anatomique qui ne ment pas, les pieds pointant
+    # toujours vers l'avant :
+    #     TRELLIS   orteils vers −Y (−0,0670)   la caméra voit la face
+    #     SF3D      orteils vers +Y (+0,0466)   la caméra voit le DOS
+    # Le rendu SF3D sortait de dos, nuque et talons face à l'objectif.
+    #
+    # ⭐ On compare le centre des pieds à celui des chevilles et on retourne
+    # si besoin. Aucune convention n'est supposée : chaque modèle est mesuré.
+    import numpy as _np
+    mwc = corps.matrix_world
+    Pc = _np.array([[(mwc @ v.co).y, (mwc @ v.co).z] for v in corps.data.vertices])
+    bas = Pc[:, 1].min()
+    pieds = Pc[Pc[:, 1] < bas + H * 0.04]
+    chev = Pc[(Pc[:, 1] > bas + H * 0.06) & (Pc[:, 1] < bas + H * 0.10)]
+    if len(pieds) and len(chev):
+        vers = pieds[:, 0].mean() - chev[:, 0].mean()
+        print(f'  orteils vers y={vers:+.4f} — '
+              f'{"de face" if vers < 0 else "de DOS, on retourne"}')
+        if vers > 0:
+            # 🔴 TOURNER L'OBJET NE SUFFIT PAS : le GLB importé place le
+            # maillage sous un parent vide nommé « world », et sa matrice monde
+            # ne bougeait pas — orteils à +0,0466 avant comme après, rendus
+            # identiques à 0 pixel près. On tourne donc les COORDONNÉES des
+            # sommets : aucune hiérarchie ne peut annuler ça.
+            for v in corps.data.vertices:
+                v.co.x, v.co.y = -v.co.x, -v.co.y
+            corps.data.update()
+            lo, hi = boite(corps)
+            print('  → maillage retourné de 180° autour de Z')
     print(f'  corps : {len(corps.data.vertices):,} sommets · '
           f'boîte {hi.x-lo.x:.3f} x {hi.y-lo.y:.3f} x {H:.3f}')
 
@@ -289,6 +322,47 @@ def main():
     # ⭐ Léger : une topologie en quads réguliers n'a plus besoin d'être
     # matraquée. Les 12 passes précédentes servaient à rattraper un maillage de
     # scan, et c'est ce matraquage qui faisait rentrer le vêtement sous la peau.
+    # ── LE GENOU, LISSÉ LOCALEMENT ───────────────────────────────────────
+    # 🔴 Ce n'est PAS une arête géométrique. Profil du rayon de la jambe, mesuré
+    # sur le modèle : il décroît régulièrement de 0,0413 à 76 % jusqu'à 0,0326
+    # à 89,5 %, sans saut. Mais entre 81,0 et 82,0 % il perd **7,2 %** là où il
+    # perd 0,5 % par point ailleurs, et la rugosité de la section tombe de
+    # moitié (écart-type 0,0071 → 0,0038). Cette transition brutale de courbure
+    # suffit à créer une ligne à l'OMBRAGE.
+    #
+    # Origine : la reconstruction image → 3D interprète une ombre comme du
+    # relief — « otherwise you'll have baked-in lighting and shadows on your
+    # assets ». Le corps 2D d'origine a une démarcation de 1,3 au genou ;
+    # TRELLIS la rend à 10,5, huit fois plus forte.
+    #
+    # ⭐ On lisse donc LÀ OÙ C'EST MESURÉ, pas partout : un groupe de sommets
+    # sur 79-85 % de la hauteur, et un lissage fort limité à ce groupe. Le
+    # reste du vêtement n'est pas touché.
+    gv = pantalon.vertex_groups.new(name='genou')
+    z_g0 = hi.z - H * 0.85
+    z_g1 = hi.z - H * 0.79
+    mw2 = pantalon.matrix_world
+    idx, poids_g = [], []
+    for v in pantalon.data.vertices:
+        z = (mw2 @ v.co).z
+        if z_g0 <= z <= z_g1:
+            # fondu aux bords du groupe : un lissage à bord franc crée à son
+            # tour une démarcation, exactement le défaut qu'on retire
+            t = (z - z_g0) / (z_g1 - z_g0)
+            idx.append(v.index)
+            poids_g.append(float(np.sin(np.pi * t) ** 0.5))
+    for i, w in zip(idx, poids_g):
+        gv.add([i], w, 'REPLACE')
+    print(f'  groupe « genou » : {len(idx):,} sommets (79 → 85 %)')
+
+    sml = pantalon.modifiers.new('genou', 'LAPLACIANSMOOTH')
+    sml.lambda_factor = 20.0
+    sml.iterations = 10
+    sml.use_volume_preserve = True
+    sml.vertex_group = 'genou'
+    sml.use_x = sml.use_y = sml.use_z = True
+    bpy.ops.object.modifier_apply(modifier=sml.name)
+
     sm = pantalon.modifiers.new('lis', 'LAPLACIANSMOOTH')
     sm.lambda_factor = 2.0
     sm.iterations = 3
@@ -306,9 +380,21 @@ def main():
     # pour empêcher un vêtement ajusté de traverser le corps. C'est exactement
     # la peau qui perçait au genou sur l'essai précédent, et que j'allais
     # « corriger » au jugé.
+    # 🔴 ET IL ANNULE TOUT LISSAGE. Le Shrinkwrap reprojette chaque sommet sur
+    # la surface du corps — donc sur le défaut lui-même. Mesuré : le lissage
+    # local du genou, 21 060 sommets, lambda 20, dix passes, a changé le rendu
+    # de **un pixel sur 4,2 millions**. Ce n'était pas le lissage qui était
+    # faible, c'était le shrinkwrap qui le défaisait, exactement comme il avait
+    # défait le lissage général plus tôt.
+    #
+    # ⭐ Il prend un groupe de sommets : on l'applique PARTOUT SAUF au genou.
+    # Là, l'épaisseur du Solidify écarte déjà le tissu du corps, et c'est
+    # justement l'endroit où l'on veut que le lissage survive.
     sw = pantalon.modifiers.new('sw', 'SHRINKWRAP')
     sw.target = corps
     sw.wrap_method = 'NEAREST_SURFACEPOINT'
+    sw.vertex_group = 'genou'
+    sw.invert_vertex_group = True
     sw.offset = H * 0.0035
     bpy.ops.object.modifier_apply(modifier=sw.name)
 

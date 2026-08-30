@@ -1320,3 +1320,85 @@ Higgsfield et sa reconstruction — il n'est pas réductible par le cadrage.
 > en caméra orthographique cadrée sur le gabarit 2D, et cette texture entre dans
 > le rig 2D construit hier — squelette mesuré, maillage contour, weld, couleur
 > Lab. La 3D est un ATELIER ; le moteur reste 2D et déterministe.
+
+---
+
+# 30 août 2026 — la ligne au genou : trois fausses pistes, puis la bonne
+
+Med : « fix la ligne au genou », puis, deux fois : **« fouille internet arrête
+d'essayer »**.
+
+## 🔴 Trois tentatives de traiter un défaut d'OMBRAGE comme un défaut de FORME
+
+| tentative | résultat mesuré |
+|---|---|
+| lissage général | le Shrinkwrap le défaisait |
+| lissage local au genou (21 060 sommets, λ = 20, 10 passes) | **1 pixel changé sur 4,2 millions** |
+| genou exempté du Shrinkwrap | 16,6 → **21,0**, et une ligne NOUVELLE à 85 %, la frontière du groupe |
+
+La mesure disait pourtant, dès le départ, qu'il n'y avait rien à lisser : le
+rayon de la jambe décroît régulièrement de 0,0413 à 0,0326, **sans saut**.
+
+## Ce que la recherche a nommé
+
+« Light information should be extracted from the processed texture; otherwise
+you'll have **baked-in lighting and shadows** on your assets. »
+
+Une reconstruction image → 3D lit une ombre comme du relief. Profil de luminance
+de la jambe dans l'image d'entrée :
+
+    79,5 %   +3,1     bosse de lumière
+    81,5 %   −4,9     LE CREUX D'OMBRE du genou
+    82,0 %   −1,6
+
+**Huit unités sur 255** — 3 % — que TRELLIS rend en une démarcation de 10,5 dans
+le maillage. Le corps 2D, lui, n'en montre que 1,3 : amplification ×8.
+
+## SF3D — l'outil qui fait le delighting nativement
+
+`Stability-AI/stable-fast-3d`, CVPR 2025 : « SF3D integrates a **delighting
+step** to effectively remove low-frequency illumination effects ».
+Licence commerciale **libre sous 1 M$ de revenus annuels** — mais révocable.
+
+### Le résultat
+
+| | démarcations | somme | la plus forte |
+|---|---|---|---|
+| le meilleur 2D | 1 | 2,3 | 2,3 |
+| 3D TRELLIS | 2 | 16,6 | **10,5** |
+| **3D SF3D délighté** | 3 | 7,1 | **2,6** |
+
+**La ligne au genou est réglée** : la plus forte démarcation passe de 10,5 à
+2,6, c'est-à-dire au niveau du meilleur 2D. Et l'IoU du corps avec le corps 2D
+monte à **92,4 %** (89,8 % pour TRELLIS), sur un maillage **30 fois plus léger**
+(6 218 sommets contre 183 820).
+
+## Deux pièges de plus, tous deux attrapés par la règle de fraîcheur
+
+**1. L'orientation.** SF3D rend le corps de DOS. Mesuré sur la direction des
+orteils — un repère anatomique qui ne ment pas :
+
+    TRELLIS   orteils vers −Y (−0,0670)   la caméra voit la face
+    SF3D      orteils vers +Y (+0,0466)   la caméra voit le dos
+
+**2. La rotation n'atteignait pas le rendu.** `corps.rotation_euler[2] += π`
+suivi d'un `transform_apply` : orteils **+0,0466 avant comme après**, rendus
+identiques à **0 pixel près**. Le GLB place le maillage sous un parent vide
+nommé « world », et la matrice monde de l'enfant ne bougeait pas.
+
+> ⭐ Deux fois de suite, la règle « deux valeurs identiques sur deux entrées
+> différentes = l'instrument ou le chemin est cassé » a évité une conclusion sur
+> le fond. On tourne désormais les COORDONNÉES des sommets : aucune hiérarchie
+> ne peut annuler ça.
+
+## Ce que SF3D ne remplace pas
+
+Son corps est nettement moins bon que celui de TRELLIS — visage déformé, peau
+marbrée. **Sans importance ici** : on ne rend que le vêtement, le corps du rendu
+final reste le 2D. Les deux pantalons ont d'ailleurs **zéro trou** (`fill_holes`
+mesuré) : ce que je prenais pour des trous était le corps SF3D perçant au
+travers, pas le tissu.
+
+**Sources**
+- SF3D, CVPR 2025 — https://github.com/Stability-AI/stable-fast-3d
+- Delighting et baked-in lighting — https://www.unrealengine.com/en-US/blog/imperfection-for-perfection-part-2
