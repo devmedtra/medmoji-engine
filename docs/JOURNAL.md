@@ -160,6 +160,45 @@ La borne de fin était fixée à 62 %. La courbe de largeur du bras :
 
 ---
 
+### 10. Les témoins vérifiaient ce que je soupçonnais
+
+Med, 30 août : « j'ai pas l'impression que tu analyses ce que tu m'envoies,
+parce que tu constaterais toi-même les problèmes ». Il avait raison — j'envoyais
+des images sans les ouvrir, en me fiant aux chiffres.
+
+Sur un pantalon cargo, deux témoins annonçaient :
+
+```
+écart hors zone touchée : 0/255      ← vrai
+mains intactes : 3/255               ← vrai
+```
+
+Les deux mesures étaient exactes. Ce qu'elles ne voyaient pas, et qui sautait
+aux yeux sur l'image :
+
+- les mains **enfermées dans des moufles vertes** — les doigts préservés à
+  l'intérieur d'un bloc de tissu, ce qui est pire que de ne rien protéger ;
+- le **sous-vêtement effacé** — il était dans la zone de peinture, rien ne le
+  surveillait ;
+- le **torse redessiné**, abdominaux inventés ;
+- le pantalon arrêté à mi-mollet.
+
+> ⭐ **Un témoin ne doit pas vérifier une hypothèse, il doit vérifier une
+> INVARIANCE.** « Tout ce qui n'est pas le vêtement doit être identique à
+> l'original » ne présume rien de l'endroit du défaut. Ce qu'on n'a pas pensé à
+> surveiller est exactement ce qui casse.
+
+Le témoin d'invariance (`temoins_fabrique.py`) rejette désormais les trois
+versions du cargo, y compris celles que les anciens déclaraient bonnes :
+
+```
+🔴 le vêtement empiète sur les mains : 72,7 % de la zone
+🔴 torse    1 203 px modifiés
+🔴 jambes     998 px modifiés
+```
+
+---
+
 ## Les défauts du Moteur
 
 ### La corpulence calculée à deux endroits

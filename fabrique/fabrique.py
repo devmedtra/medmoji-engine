@@ -94,6 +94,9 @@ BASE = os.environ.get('MEDMOJI_BASE', '/home/mederic/medmoji-fabrique/base.norm.
 SORTIE = os.environ.get('MEDMOJI_SORTIE', '/home/mederic/medmoji-fabrique')
 MODELE_VISAGE = f'{SORTIE}/face_landmarker.task'
 MODELE_SDXL = 'diffusers/stable-diffusion-xl-1.0-inpainting-0.1'
+# Le masque des bras, calculé une fois par géométrie pure — le corps de base
+# ne bouge jamais, donc c'est un fichier et non un calcul.
+MASQUE_BRAS = f'{SORTIE}/masque-bras-fixe.png'
 
 # ── Le gabarit, mesuré sur le personnage neutre validé ─────────────────────
 ZONES = {
@@ -224,7 +227,8 @@ def masque_zone(im, zone='haut'):
 
     bande = np.zeros(corps.shape, bool)
     bande[haut:bas] = True
-    m = ndimage.binary_dilation(corps & bande,
+    zone_corps = corps & bande
+    m = ndimage.binary_dilation(zone_corps,
                                 ndimage.generate_binary_structure(2, 2),
                                 iterations=rayon) & bande
 
@@ -287,16 +291,96 @@ def generer(orig, mq, description, couleur):
     pipe.set_progress_bar_config(disable=True)
 
     return pipe(
+        # ⭐ L'ORDRE DES MOTS DICTE L'ATTENTION DU MODÈLE. Med, 30 août 2026 :
+        # la matière et le volume AVANT le type de vêtement et la couleur.
+        #     à éviter  : « a green cargo pants, 3d style »
+        #     à écrire  : « thick heavy canvas, baggy loose fit, deep folds,
+        #                   bulky pockets, olive green, 3d render »
+        # Sans ça, le modèle moule le vêtement sur la peau au lieu de lui
+        # donner une épaisseur — l'effet « peinture corporelle ».
         prompt=(f'{description}. Solid garment clearly darker than skin. '
                 '3d cartoon character clothing, matte fabric with visible folds, '
                 'soft studio lighting from upper left, white background'),
+        # 🔴 LES TERMES QUI COLLENT LE TISSU À LA PEAU SONT BANNIS. Combinés à
+        # une contrainte de géométrie, « tight », « fitted » ou « stretchy »
+        # garantissent l'effet d'emballage sous vide.
         negative_prompt=('skin coloured clothing, beige, flesh tone garment, nude, '
+                         'tight, fitted, skinny, slim fit, stretchy, spandex, '
+                         'leggings, shrink wrap, body paint, '
                          'photorealistic, flat vector, black outline, text, watermark'),
         image=preremplir(orig, mq, couleur).resize(GEN, Image.LANCZOS),
         mask_image=mq.resize(GEN, Image.NEAREST),
         num_inference_steps=40, guidance_scale=8.0, strength=0.85,
         generator=torch.Generator('cuda').manual_seed(GRAINE),
     ).images[0].resize((W, H), Image.LANCZOS)
+
+
+def recoller_membres(fusion, orig, corps, haut, bas, alpha_src):
+    """Repose les bras et les mains d'origine PAR-DESSUS le vêtement généré.
+
+    🔴 POURQUOI ON NE LES EXCLUT PLUS DU MASQUE. Med, 30 août 2026, devant des
+    doigts tranchés : « quand le modèle vient buter contre une limite stricte
+    sans marge de transition, il panique — il crée des artefacts, bave, ou coupe
+    les phalanges ».
+
+    Découper les bras du masque produisait des frontières anguleuses autour des
+    doigts, que l'inpainting ne sait pas négocier. On laisse donc le modèle
+    peindre librement, quitte à ce qu'il couvre les mains, puis on remet les
+    membres d'origine par-dessus. Ils n'ont jamais été touchés, donc ils sont
+    intacts à 100 %.
+
+    ⭐ C'est le z-index appliqué au pipeline de génération : ce qui doit rester
+    intact ne se protège pas en amont, il se repose en aval.
+    """
+    # ── LE MASQUE STATIQUE, calculé une seule fois ──
+    # Le corps de base ne bouge jamais : ce masque est un fichier, pas un
+    # calcul. S'il est absent, on le dérive à la volée par la même géométrie.
+    if os.path.exists(MASQUE_BRAS):
+        membres = np.asarray(Image.open(MASQUE_BRAS).convert('L')) > 127
+    else:
+        membres = np.zeros(corps.shape, bool)
+        for y in range(corps.shape[0]):
+            xs = np.where(corps[y])[0]
+            if len(xs) < 2:
+                continue
+            c = np.where(np.diff(xs) > 1)[0]
+            segs = np.split(xs, c + 1)
+            if len(segs) >= 3:                 # bras | tronc | bras
+                for seg in (segs[0], segs[-1]):
+                    membres[y, seg] = True
+        membres = ndimage.binary_closing(membres, np.ones((3, 3)))
+
+    # 🔴 SEULS LES PIXELS PLEINEMENT OPAQUES SONT PROTÉGÉS.
+    # Mesure du 30 août : 99 % des pixels encore abîmés étaient au BORD du
+    # masque, avec un alpha de 110/255 — la frange d'anti-crénelage du
+    # détourage. Ces pixels n'appartiennent ni au bras ni au fond : composés
+    # sur blanc ils valent « bras + blanc », alors qu'ils devraient valoir
+    # « bras + vêtement ». Les recopier tels quels injecte du blanc au pourtour.
+    #
+    # ⭐ Ce n'était donc ni le fondu gaussien (162) ni le booléen strict (208) :
+    # les deux recopiaient la même frange fausse. On la laisse se composer
+    # naturellement et on ne protège que l'intérieur plein.
+    membres = membres & (alpha_src > 250)
+    zone = np.zeros(corps.shape, bool)
+    zone[haut:bas] = True
+    membres = membres & zone
+    if not membres.any():
+        return fusion, 0
+
+    # 🔴 REMPLACEMENT BOOLÉEN STRICT, SANS FONDU.
+    # Med, 30 août 2026 : « en voulant adoucir le raccord, le masque s'est
+    # transformé en zone de mélange, laissant le vêtement contaminer le bord de
+    # la peau ». Mesuré : un fondu gaussien de 2 px laissait un écart de
+    # 162/255 sur les mains. Chaque pixel est désormais soit 100 % d'origine,
+    # soit 100 % généré — aucun compromis sur les bords.
+    #
+    # ⭐ Le fondu était justifié pour le RECOLLAGE DU VÊTEMENT, où les deux
+    # images se ressemblent. Il ne l'est pas ici : le bras d'origine et le
+    # vêtement généré n'ont rien en commun, et les mélanger ne peut que salir.
+    out = fusion.copy()
+    a_or = np.asarray(orig).astype(np.uint8)
+    out[membres] = a_or[membres]
+    return out, int(membres.sum())
 
 
 def recoller(orig, genere, mq, src):
@@ -315,6 +399,15 @@ def recoller(orig, genere, mq, src):
     a_ge = np.asarray(genere).astype(np.float32)
     al = (np.asarray(doux).astype(np.float32) / 255.0)[:, :, None]
     fusion = (a_or * (1 - al) + a_ge * al).round().astype(np.uint8)
+
+    # ── LES MEMBRES REPOSÉS PAR-DESSUS, avant de calculer l'alpha ──
+    corps = np.asarray(src)[:, :, 3] > 16
+    ys = np.where(np.asarray(mq).any(1))[0]
+    if len(ys):
+        fusion, n = recoller_membres(fusion, orig, corps, ys.min(), ys.max(),
+                                     np.asarray(src)[:, :, 3])
+        if n:
+            print(f'  membres reposés intacts : {n:,} px')
 
     m = np.asarray(mq) > 127
     alpha = (np.asarray(src)[:, :, 3] > 16) | (m & (fusion.min(2) < 244))
