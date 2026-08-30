@@ -250,6 +250,70 @@ def masque_zone(im, zone='haut'):
                                 ndimage.generate_binary_structure(2, 2),
                                 iterations=rayon) & bande
 
+    # ── 🔴 LA TOPOLOGIE DU MASQUE NE DOIT PAS OSCILLER ────────────────────
+    # Med, 30 août 2026, a entouré trois fois la même couture horizontale en
+    # travers des cuisses. Je l'avais expliquée — « c'est la fourche » — au lieu
+    # de la tuer. Mesure du masque, ligne par ligne, en nombre de segments :
+    #
+    #     66,5 → 68,0 %   1 segment    l'entrejambe est comblée
+    #     69,0 → 71,0 %   2 segments   les jambes sont séparées
+    #     72,0 → 73,0 %   1 segment    ← il SE REFERME
+    #     73,5 % et plus  2 segments   et se rouvre
+    #
+    # Le masque s'ouvre, se referme, se rouvre. SDXL peint une transition à
+    # chaque changement — c'est-à-dire une couture, exactement à la hauteur
+    # entourée. Ni le sous-vêtement (gradient de l'init ramené de 1,36 à 0,48)
+    # ni le prompt (4,0 sans « cargo » contre 4,4 avec) n'en étaient la cause.
+    #
+    # ⭐ Un pantalon n'a qu'UNE fourche. Une fois le masque ouvert en deux
+    # jambes, il ne doit plus jamais se refermer : on impose la monotonie, en
+    # retirant sous la fourche le fond enfermé entre les deux segments. La
+    # transition devient unique et franche au lieu d'osciller.
+    def _segments(ligne):
+        xs = np.where(ligne)[0]
+        if not len(xs):
+            return []
+        return [(int(g[0]), int(g[-1]))
+                for g in np.split(xs, np.where(np.diff(xs) > 1)[0] + 1)]
+
+    # 🔴 LES BRAS SONT AUSSI DES SEGMENTS. Deux critères inventés au passage,
+    # deux échecs, tous deux attrapés par une valeur absurde :
+    #   · « au moins deux segments » → fourche à 52,4 %, la TAILLE (la ligne
+    #     coupe bras gauche | tronc | bras droit) ; masque détruit sur 268 549 px
+    #   · « segments touchant la bande centrale ± 60 px » → 87,5 %, les jambes
+    #     s'étant écartées au-delà de la bande
+    #
+    # ⭐ LE CRITÈRE EXISTAIT DÉJÀ, dans `squelette.py` : la première ligne, en
+    # descendant, qui coupe le corps en EXACTEMENT deux segments larges. Le
+    # « exactement » est ce qui exclut les bras, qui en ajoutent toujours un
+    # troisième. Il rend 72,1 %, identique à la valeur de `squelette.json`
+    # mesurée indépendamment. On ne réinvente pas ce qui est déjà mesuré.
+    def _larges(y):
+        return [s for s in _segments(corps[y]) if s[1] - s[0] > 20]
+
+    y_fourche = None
+    for y in range(haut, bas):
+        if len(_larges(y)) == 2:
+            y_fourche = y
+            break
+    if y_fourche is not None:
+        refermees = 0
+        for y in range(y_fourche, bas):
+            sc = _larges(y)
+            if len(sc) != 2:
+                continue
+            # le vide du CORPS entre les deux jambes : le masque n'a rien à y
+            # faire sous la fourche, quelle que soit sa dilatation
+            # ⚠️ Nom distinct : `creux` désigne déjà, plus haut, la liste des
+            # écarts du corps qui sert à calibrer le rayon de dilatation.
+            # L'écraser par un slice faisait planter `np.median(creux)`.
+            entrejambe = slice(sc[0][1] + 1, sc[-1][0])
+            if entrejambe.stop > entrejambe.start and m[y, entrejambe].any():
+                refermees += int(m[y, entrejambe].sum())
+                m[y, entrejambe] = False
+        print(f'  fourche à {(y_fourche - h0) / Hp * 100:.1f} % · '
+              f'entrejambe rouverte sur {refermees:,} px')
+
     # ⭐ LE TÉMOIN QUI MANQUAIT : un masque sans creux EST un trapèze.
     restants = sum(int(np.ptp(np.where(m[y])[0]) + 1 - len(np.where(m[y])[0]))
                    for y in range(haut, bas) if m[y].any())
@@ -330,12 +394,17 @@ def masque_zone(im, zone='haut'):
 #  2. LA GÉNÉRATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-def format_travail(W, H, cible=1_100_000):
+def format_travail(W, H, cible=None):
     """Dimensions de génération qui RESPECTENT le ratio du canevas.
 
     SDXL travaille autour du million de pixels. Générer dans un autre ratio
     puis remonter étire l'image — c'est le défaut 1.
     """
+    # ⭐ La surface de travail se règle : à 1,10 Mpx, une cellule latente vaut
+    # 15,7 px du canevas final ; à 2,09 Mpx elle n'en vaut plus que 11,4. Tout
+    # défaut qui suivrait cette échelle est un artefact de résolution, pas une
+    # propriété du vêtement — c'est ce que ce réglage permet de trancher.
+    cible = cible or int(os.environ.get('MEDMOJI_CIBLE', '1100000'))
     r = W / H
     h = (cible / r) ** 0.5
     return int(round(h * r / 8) * 8), int(round(h / 8) * 8)
@@ -536,7 +605,15 @@ def generer(orig, mq, description, couleur):
         # 🔴 LES TERMES QUI COLLENT LE TISSU À LA PEAU SONT BANNIS. Combinés à
         # une contrainte de géométrie, « tight », « fitted » ou « stretchy »
         # garantissent l'effet d'emballage sous vide.
-        negative_prompt=('skin coloured clothing, beige, flesh tone garment, nude, '
+        # 🔴 UN PROMPT DÉCRIT, IL N'INTERDIT PAS. « no pockets, seamless » dans
+        # le prompt positif n'a rien empêché : le modèle a remis des rabats
+        # latéraux à mi-cuisse sur les deux jambes, parce qu'un pantalon
+        # d'avatar 3D en a dans son prior. Med les a entourés trois fois.
+        # Ce qui doit disparaître se met dans le prompt NÉGATIF, où il pèse
+        # vraiment — c'est la même leçon que la couleur, qu'un prompt positif
+        # n'imposait pas non plus et qu'il a fallu préremplir.
+        negative_prompt=(os.environ.get('MEDMOJI_NEG_SUP', '') +
+                         'skin coloured clothing, beige, flesh tone garment, nude, '
                          'tight, fitted, skinny, slim fit, stretchy, spandex, '
                          'leggings, shrink wrap, body paint, '
                          'photorealistic, flat vector, black outline, text, watermark'),

@@ -930,3 +930,80 @@ au lieu du seul centre. Couverture 98,7 → **98,9 %**, plus grand trou 1 489 �
   (Drillis & Contini 1966) — https://courses.grainger.illinois.edu/me481/sp2021/Anthro-Winter.pdf
 - SpriteToMesh, arXiv 2602.21153 — https://arxiv.org/html/2602.21153v1
 - Spine User Guide, *Weights view* — https://en.esotericsoftware.com/spine-weights
+
+---
+
+# 30 août 2026 — « pourquoi tu mets pas un pantalon sans poches sur le côté »
+
+Med, en une phrase, sur une image annotée de trois cercles rouges à mi-cuisse.
+Il avait raison sur les deux points : les poches latérales sont exactement là où
+tous les défauts se concentraient, et **la couture, je l'avais expliquée au lieu
+de la tuer**.
+
+## Ce que le cargo coûtait, mesuré
+
+| | cargo | sans poches |
+|---|---|---|
+| liserés clairs | 11 752 px | **9 244 px** (−21 %) |
+| taches de liseré | 12 | 11 |
+| périmètre du contour | 4 398 | 4 354 |
+| couture (saut à 66-72 %) | 4,4 | 4,0 |
+
+## 🔴 La vraie cause : le masque OSCILLE en topologie
+
+Mesure du masque de génération, ligne par ligne, en nombre de segments :
+
+```
+   66,5 → 68,0 %   1 segment    l'entrejambe est comblée
+   69,0 → 71,0 %   2 segments   les jambes sont séparées
+   72,0 → 73,0 %   1 segment    ← il SE REFERME
+   73,5 % et plus  2 segments   et se rouvre
+```
+
+Le masque s'ouvre, se referme, se rouvre. **SDXL peint une transition à chaque
+changement** — c'est-à-dire une couture, pile à la hauteur entourée.
+
+⭐ Un pantalon n'a qu'une fourche. Une fois le masque ouvert en deux jambes, il
+ne doit plus jamais se refermer : on retire, sous la fourche, le fond enfermé
+entre les deux segments.
+
+**Deux critères inventés au passage, deux échecs**, tous deux attrapés par une
+valeur absurde : « au moins deux segments » a rendu *fourche à 52,4 %* — la
+taille, la ligne coupant bras | tronc | bras — et détruit le masque sur
+268 549 px ; « segments touchant la bande centrale ± 60 px » a rendu 87,5 %.
+
+> ⭐ **Le critère existait déjà.** `squelette.py` cherche la première ligne
+> coupant le corps en EXACTEMENT deux segments larges — le « exactement » est ce
+> qui exclut les bras, qui en ajoutent toujours un troisième. Il rend 72,1 %,
+> identique à `squelette.json` mesuré indépendamment. On ne réinvente pas ce
+> qui est déjà mesuré.
+
+## Un prompt DÉCRIT, il n'INTERDIT pas
+
+« no pockets, seamless » dans le prompt positif n'a rien empêché : le modèle a
+remis des rabats, parce qu'un pantalon d'avatar 3D en a dans son prior. Déplacés
+dans le prompt **négatif**, ils disparaissent du haut de la jambe.
+
+C'est la même leçon que la couleur, qu'un prompt positif n'imposait pas non plus
+et qu'il a fallu préremplir.
+
+## 🔴 Et mon indicateur mesurait une bande fixe
+
+Le saut de luminance sur 66-72 % annonçait une **régression** avec le prompt
+négatif : 2,2 → 3,5. Or le haut de la jambe était visiblement plus lisse. Le
+défaut ne s'était pas aggravé, il s'était **déplacé sous le genou** — hors de la
+bande mesurée.
+
+L'indicateur juste compte les démarcations horizontales sur **toute** la jambe,
+de 54 à 92 % :
+
+| version | démarcations | somme des sauts | la plus forte |
+|---|---|---|---|
+| cargo | **11** | 28,5 | 4,2 à 84,4 % |
+| sans poches | 4 | 5,4 | 2,0 à 71,4 % |
+| + génération 2,1 Mpx | 3 | 4,3 | 1,8 à 56,8 % |
+| + poches en prompt négatif | **2** | 4,5 | 2,8 à 71,4 % |
+
+**De 11 lignes à 2, somme divisée par 6.** La résolution de génération, elle,
+ne déplace pas la couture (elle reste à 71-72 % en passant de 1,10 à 2,09 Mpx) :
+ce n'est donc pas un artefact d'échelle, c'est bien la fourche.
