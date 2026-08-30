@@ -217,6 +217,18 @@ def masque_zone(im, zone='haut'):
         d = menton(im, h0, Hp) + 0.015          # sous le menton
     if f is None:
         f = poignet(corps, h0, Hp) - 0.005      # au-dessus du poignet
+    if zone == 'bas':
+        # ⭐ LA TAILLE SE MESURE SUR LE SOUS-VÊTEMENT, elle ne se fixe pas.
+        # 0,55 était une constante ; le sous-vêtement commence à 0,541. Les
+        # 22 px d'écart restaient gris en haut du pantalon — la bande que Med a
+        # entourée en bleu le 30 août — faute d'être dans le masque.
+        sv = sous_vetement(im)
+        if sv.any():
+            y = int(np.where(sv.any(1))[0].min())
+            avant_d = d
+            d = min(d, (y - h0) / Hp - 0.01)
+            print(f'  taille mesurée sur le sous-vêtement : {d*100:.1f} % '
+                  f'(constante : {avant_d*100:.1f} %)')
     haut, bas = h0 + int(Hp * d), h0 + int(Hp * f)
 
     # Le rayon se calibre sur les CREUX du corps, jamais sur sa largeur.
@@ -378,6 +390,103 @@ def preremplir(orig, mq, couleur):
     bruit = np.random.default_rng(GRAINE).normal(0, 8 / 255.0, size=out.shape)
     a[m] = np.clip((out + bruit) * 255.0, 0, 255)
     return Image.fromarray(a.astype(np.uint8))
+
+
+def sous_vetement(im):
+    """Le sous-vêtement du corps de base — mesuré, jamais supposé.
+
+    🔴 IL EST LA CAUSE DE DEUX DÉFAUTS À LA FOIS, tous deux vus par Med sur le
+    rendu du 30 août et confirmés par la mesure :
+
+      · une BANDE GRISE en haut du pantalon. La zone « bas » démarrait à 55,0 %
+        de la hauteur, le sous-vêtement à 54,1 % : 22 px de boxer que
+        l'inpainting ne pouvait pas repeindre, donc 799 px de gris qui restent.
+
+      · une COUTURE HORIZONTALE en travers des cuisses. Saut de luminance de
+        8,7 mesuré à 71,5 %, juste au-dessus du bas du boxer (72,8 %). SDXL
+        voit ce bord dans l'image d'entrée et le REPRODUIT comme une couture de
+        vêtement. C'est la même structure qui, plus tôt, faisait terminer le
+        pantalon en pleine cuisse.
+
+    ⭐ Un modèle d'inpainting ne dessine pas dans le vide : il prolonge ce qu'il
+    voit. Toute arête présente dans l'init ressort dans la sortie. Le
+    sous-vêtement doit donc DISPARAÎTRE de l'init — la zone est de toute façon
+    recouverte par le vêtement.
+
+    ⭐ IL SE RECONNAÎT À SA TEINTE, PAS À SA CLARTÉ. Une première version
+    prenait « désaturé et clair, plus grosse composante » : elle ne trouvait que
+    le centre du boxer (x 605 à 997, soit 393 colonnes), parce que ses flancs
+    sont dans l'ombre — trop sombres pour un seuil de clarté — et parce que le
+    liseré de la ceinture le coupe en plusieurs composantes.
+
+    L'axe b* de Lab (jaune ↔ bleu) sépare les deux populations franchement.
+    Histogramme mesuré sur la bande du bassin, 370 589 px :
+
+        b* ∈ [−7,3 ; −0,2]   169 662 px   ← le tissu, neutre à bleuté
+        b* ∈ [−0,2 ;  3,4]       768 px   ← LA VALLÉE
+        b* ∈ [17,6 ; 28,3]   162 374 px   ← la peau, franchement orangée
+
+    Deux modes, une vallée nette : le seuil se lit, il ne se choisit pas.
+    b* < 4 rend un masque symétrique autour de l'axe du corps (x 538 à 997,
+    centre 767,5) — contrôle qui attrape un seuil trop lâche : à b* < 6 le
+    masque devient x 331 à 997, dissymétrique, donc il a mordu autre chose.
+    """
+    a = np.asarray(im.convert('RGBA'))
+    corps = a[:, :, 3] > 250
+    ys = np.where((a[:, :, 3] > 16).any(1))[0]
+    if not len(ys):
+        return np.zeros(corps.shape, bool)
+    h0, Hp = ys.min(), ys.max() - ys.min()
+    bande = np.zeros(corps.shape, bool)
+    bande[h0 + int(Hp * .50):h0 + int(Hp * .78)] = True
+    b = _vers_lab(np.asarray(sur_blanc(im)).astype(float))[..., 2]
+    m = corps & bande & (b < 4)
+    lab, n = ndimage.label(m)
+    if not n:
+        return np.zeros(corps.shape, bool)
+    t = ndimage.sum(m, lab, range(1, n + 1))
+    return np.isin(lab, [i + 1 for i in range(n) if t[i] > 1500])
+
+
+def effacer_sous_vetement(orig, src):
+    """Remplace le sous-vêtement par la peau qui l'entoure, dans l'init.
+
+    Pas une retouche du rendu : l'image ainsi modifiée ne sert QU'À nourrir le
+    modèle, et la zone est intégralement recouverte par le vêtement généré.
+    """
+    sv = sous_vetement(src)
+    if not sv.any():
+        return orig, 0
+    corps = np.asarray(src.convert('RGBA'))[:, :, 3] > 250
+    # ⚠️ LE CONTOUR AUSSI. Le liseré de la ceinture et l'ourlet des cuisses
+    # sont plus foncés que le tissu, donc hors du seuil b* < 4 — et ce sont
+    # précisément les ARÊTES que le modèle recopie en couture. On les avale,
+    # borné au corps : quelques pixels de peau remplacés par de la peau voisine
+    # ne changent rien, et la zone est de toute façon recouverte.
+    sv = ndimage.binary_dilation(sv, np.ones((7, 7))) & corps
+    a = np.asarray(orig).astype(float).copy()
+    # La peau juste au-dessus et juste en dessous, colonne par colonne : le
+    # dégradé du corps est conservé, aucune couleur n'est inventée.
+    # ⚠️ N'ÉCRIRE QUE DANS `sv`. Première version : `a[y0:y1+1, x] = …` écrasait
+    # toute la colonne entre le premier et le dernier pixel du sous-vêtement,
+    # trous compris — écart de 100/255 mesuré hors du masque, sur des pixels
+    # qui devaient rester intacts.
+    for x in np.where(sv.any(0))[0]:
+        col = np.where(sv[:, x])[0]
+        y0, y1 = col.min(), col.max()
+        pa = a[max(0, y0 - 6):y0, x][corps[max(0, y0 - 6):y0, x]]
+        pb = a[y1 + 1:y1 + 7, x][corps[y1 + 1:y1 + 7, x]]
+        if not len(pa) and not len(pb):
+            continue
+        ca = pa.mean(0) if len(pa) else pb.mean(0)
+        cb = pb.mean(0) if len(pb) else ca
+        t = ((col - y0) / max(1, y1 - y0))[:, None]
+        a[col, x] = ca[None, :] * (1 - t) + cb[None, :] * t
+    # un léger flou dans la seule zone remplacée : pas d'arête résiduelle
+    lisse = np.asarray(Image.fromarray(a.round().astype(np.uint8))
+                       .filter(ImageFilter.GaussianBlur(9))).astype(float)
+    a[sv] = lisse[sv]
+    return Image.fromarray(a.round().astype(np.uint8)), int(sv.sum())
 
 
 def generer(orig, mq, description, couleur):
@@ -619,11 +728,46 @@ def _vers_lab(rvb):
                      200 * (f[..., 1] - f[..., 2])], -1)
 
 
-def _vers_rvb(lab):
+def _lin(lab):
     fy = (lab[..., 0] + 16) / 116
     f = np.stack([fy + lab[..., 1] / 500, fy, fy - lab[..., 2] / 200], -1)
     xyz = np.where(f > .206893, f ** 3, (f - 16 / 116) / 7.787) * _BLANC
-    r = xyz @ np.linalg.inv(_M_RVB_XYZ).T
+    return xyz @ np.linalg.inv(_M_RVB_XYZ).T
+
+
+def _vers_rvb(lab, mapper=True):
+    """Lab → sRGB. Avec `mapper`, la couleur hors gamut est RAMENÉE, pas écrêtée.
+
+    🔴 UN CLIP N'EST PAS UNE CONVERSION. Le conseil d'IA, 30 août : « imposer
+    (a, b) puis repasser en sRGB peut produire des pixels hors gamut ; le
+    clipping RGB modifie alors L* et réduit localement la texture. » Mesuré sur
+    la version précédente, à l'intérieur du vêtement :
+
+        rouge   7,2 % hors gamut, 6,97 % de pixels écrêtés
+        bleu    6,8 % hors gamut, 7,95 % de pixels écrêtés
+
+    Sept pour cent des pixels perdaient leur luminance au profit d'un bord de
+    cube. ⭐ La chroma se réduit, la luminance se garde : on cherche le plus
+    grand facteur k tel que (L, k·a, k·b) tienne dans sRGB. Huit pas de
+    dichotomie suffisent — l'erreur résiduelle est sous le quantum 1/255.
+    """
+    r = _lin(lab)
+    if mapper:
+        hors = ((r < 0) | (r > 1)).any(-1)
+        if hors.any():
+            bas = np.zeros(lab.shape[:-1]); haut = np.ones(lab.shape[:-1])
+            for _ in range(8):
+                k = (bas + haut) / 2
+                essai = lab.copy()
+                essai[..., 1] *= k
+                essai[..., 2] *= k
+                dedans = ~((_lin(essai) < -1e-6) | (_lin(essai) > 1 + 1e-6)).any(-1)
+                bas = np.where(dedans, k, bas)
+                haut = np.where(dedans, haut, k)
+            lab = lab.copy()
+            lab[..., 1] = np.where(hors, lab[..., 1] * bas, lab[..., 1])
+            lab[..., 2] = np.where(hors, lab[..., 2] * bas, lab[..., 2])
+            r = _lin(lab)
     r = np.where(r > .0031308, 1.055 * np.maximum(r, 0) ** (1 / 2.4) - .055, 12.92 * r)
     return np.clip(r, 0, 1) * 255
 
@@ -778,7 +922,13 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
     mq = masque_zone(src, zone)
     mq.save(f'{SORTIE}/{nom}.zone.png')
 
-    genere = generer(orig, mq, description, couleur)
+    # ⭐ L'INIT NE DOIT CONTENIR AUCUNE ARÊTE QU'ON NE VEUT PAS VOIR RESSORTIR.
+    # Le sous-vêtement est effacé de l'image qui nourrit le modèle — jamais du
+    # rendu, et la zone est entièrement recouverte par le vêtement généré.
+    init, n_sv = effacer_sous_vetement(orig, src)
+    if n_sv:
+        print(f'  sous-vêtement effacé de l\'init : {n_sv:,} px')
+    genere = generer(init, mq, description, couleur)
     habille, fusion, alpha = recoller(orig, genere, mq, src)
     habille.save(f'{SORTIE}/{nom}.png')
 

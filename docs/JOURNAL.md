@@ -605,3 +605,87 @@ jamais franchie.
 **Le garde-fou du conseil a servi dès le premier essai** : il a sorti du masque
 **12 342 px de pieds** et 1 034 px de chevilles (couleur 218,170,138 — de la
 peau) que SAM y avait mis, plus la ceinture (8 364 px).
+
+---
+
+# 30 août 2026 — les deux défauts que Med a entourés
+
+Med a annoté le rendu : un cercle **bleu** sur la bande grise en haut du
+pantalon, un cercle **rouge** sur une couture horizontale en travers des
+cuisses. Mesure des deux : **une seule cause, le sous-vêtement.**
+
+| ce qu'on voit | ce qu'on mesure |
+|---|---|
+| bande grise (bleu) | la zone « bas » démarrait à 55,0 %, le sous-vêtement à 54,1 % — 22 px de boxer hors du masque, donc jamais repeints |
+| couture horizontale (rouge) | saut de luminance de 8,7 à **71,5 %**, juste au-dessus du bas du boxer (72,8 %) |
+
+> ⭐ **Un modèle d'inpainting ne dessine pas dans le vide : il prolonge ce qu'il
+> voit.** Toute arête présente dans l'init ressort dans la sortie. Le bord du
+> sous-vêtement devenait une couture de vêtement — et c'est la même structure
+> qui, plus tôt dans la nuit, faisait terminer le pantalon en pleine cuisse.
+
+Deux corrections :
+
+- **la taille se mesure** sur le sous-vêtement au lieu d'être une constante :
+  52,4 % au lieu de 55,0 % ;
+- **le sous-vêtement est effacé de l'init** — jamais du rendu — par
+  interpolation de la peau qui l'entoure, contour compris.
+
+## 🔴 Le sous-vêtement se reconnaît à sa TEINTE, pas à sa clarté
+
+Première détection : « désaturé et clair, plus grosse composante ». Elle ne
+trouvait que le centre du boxer — **393 colonnes sur 459**, x de 605 à 997 —
+parce que ses flancs sont dans l'ombre et que le liseré de ceinture le coupe en
+plusieurs composantes (717 au total).
+
+L'axe **b\*** de Lab sépare franchement. Histogramme sur la bande du bassin,
+370 589 px :
+
+```
+   b* ∈ [−7,3 ; −0,2]   169 662 px   ← le tissu, neutre à bleuté
+   b* ∈ [−0,2 ;  3,4]       768 px   ← LA VALLÉE
+   b* ∈ [17,6 ; 28,3]   162 374 px   ← la peau, franchement orangée
+```
+
+Enfin deux populations qui se séparent. Le seuil `b* < 4` se lit, il ne se
+choisit pas — et le **contrôle de symétrie** valide : masque centré en x = 768
+pour un axe du corps à x = 767. À `b* < 6`, le masque devient dissymétrique
+(x 331 à 997) : il a mordu autre chose.
+
+## Un clip n'est pas une conversion
+
+Le conseil : « imposer (a, b) puis repasser en sRGB peut produire des pixels
+hors gamut ; le clipping modifie alors L\* ». Mesuré sur l'intérieur du vêtement :
+
+| teinte | hors gamut | pixels écrêtés | erreur max sur L\* |
+|---|---|---|---|
+| rouge | 7,2 % | 6,97 % | **10,7** |
+| bleu | 6,8 % | 7,95 % | 1,3 |
+
+⭐ **La chroma se réduit, la luminance se garde** : on cherche par dichotomie le
+plus grand k tel que (L, k·a, k·b) tienne dans sRGB. Huit pas suffisent —
+l'erreur résiduelle passe sous le quantum 1/255. Erreur sur L\* : **10,7 → 0,0**,
+`std(L)` conservé à **1,000**.
+
+Un critère du conseil est en revanche **rejeté, mesure à l'appui** :
+`|median(ΔL*)| ≤ 1,5`. Teindre un tissu clair en bleu marine DOIT l'assombrir —
+la médiane mesurée vaut −55, et c'est le comportement voulu. Le critère
+suppose un changement de teinte à luminosité constante ; ce n'est pas ce qu'on
+fait. `std(L)_post / std(L)_pre` reste le bon critère, et il passe.
+
+## Et un garde-fou qui a servi immédiatement
+
+Effacer le sous-vêtement a fait monter la taille de 55 % à 52,4 %. SAM n'avait
+alors plus d'ancre négative entre les épaules (42 %) et la taille : son masque
+est passé à **752 582 px, 66 % du personnage, dont 74 % du TORSE et 93 % des
+PIEDS**. Un seul repère négatif au ventre (0,50 · 0,48 — vérifié sur la peau
+nue, écart 0/255) le ramène à 33,1 %, avec **zéro pixel** sur le visage, le
+torse et les pieds.
+
+| | avant | après |
+|---|---|---|
+| ceinture grise | visible sur les 4 teintes | **absente** |
+| couture aux cuisses | saut de 8,7 à 71,5 % | **absente** |
+| `std(L)` post/pre | 0,30 / 0,44 / 0,61 | **1,00 / 1,00 / 1,01** |
+| erreur sur L\* (gamut) | 10,7 | **0,0** |
+| vêtement non teint | 19 427 px | **4 316 px** |

@@ -66,6 +66,14 @@ REPERES = {
                             (0.42, 0.80), (0.58, 0.80)]},     # les GENOUX
     'bas':    {'positifs': [(0.50, 0.66), (0.42, 0.78), (0.58, 0.78)],
                'negatifs': [(0.35, 0.42), (0.65, 0.42),       # les ÉPAULES
+                            (0.50, 0.48),                     # ⚠️ LE VENTRE :
+                            # depuis que le sous-vêtement est effacé de l'init,
+                            # le pantalon monte à 52,4 % au lieu de 55 %, et
+                            # SAM n'avait plus d'ancre négative entre les
+                            # épaules (42 %) et la taille. Résultat mesuré :
+                            # 752 582 px, soit 66 % du personnage, dont 74 % du
+                            # TORSE et 93 % des PIEDS. Ce point est sur la peau
+                            # nue à 48 % — vérifié, écart 0/255 au corps nu.
                             (0.50, 0.97),                     # les pieds
                             (0.50, 0.72)]},                   # ⚠️ ENTREJAMBE :
                                                    # sans ce point, SAM relie
