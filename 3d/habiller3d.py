@@ -42,10 +42,23 @@ from mathutils import Vector
 ARGS = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 GLB = ARGS[0] if ARGS else 'corps-base.glb'
 SORTIE = ARGS[1] if len(ARGS) > 1 else '.'
+# ⭐ Le vêtement est un jeu de bornes, pas un script à part. Chaque pièce se
+# décrit par la tranche de hauteur qu'elle couvre, l'écart latéral qu'elle
+# admet, et le nombre de morceaux qu'elle doit avoir — tous MESURÉS sur le
+# corps de base et lus dans `squelette.json`.
+PIECE = ARGS[2] if len(ARGS) > 2 else 'bas'
+PIECES = {
+    # nom      haut    bas     écart   morceaux  couleur
+    'bas':    (0.524, 0.917, 0.105, 2, (0.106, 0.128, 0.062)),   # taille → chevilles
+    'haut':   (0.300, 0.560, 0.105, 1, (0.62, 0.20, 0.22)),      # sous le menton → sous la taille
+    'pieds':  (0.905, 1.000, 0.105, 2, (0.05, 0.05, 0.06)),      # chevilles → sol
+}
 
 # Mesuré sur le corps de base — voir squelette.json. En fraction de la hauteur,
 # comptée depuis le SOMMET du crâne.
-TAILLE, CHEVILLE = 0.524, 0.917
+TAILLE, CHEVILLE, ECART_MAX, N_MORCEAUX, COULEUR = (
+    PIECES[PIECE][0], PIECES[PIECE][1], PIECES[PIECE][2],
+    PIECES[PIECE][3], PIECES[PIECE][4])
 # 🔴 UNE TRANCHE EN Z NE DISTINGUE PAS UNE JAMBE D'UNE MAIN. Premier essai :
 # les mains, qui pendent à la hauteur des cuisses, se sont retrouvées prises
 # dans le pantalon — deux blocs de tissu de part et d'autre du personnage.
@@ -58,7 +71,6 @@ TAILLE, CHEVILLE = 0.524, 0.917
 #     à 75 %   plus de bras du tout, jambes à 0,095 maximum
 #
 # Le seuil se lit dans la vallée, il ne se choisit pas.
-ECART_MAX = 0.105
 EPAISSEUR = 0.006          # en fraction de la hauteur du personnage
 DECIMATION = 0.28          # 1,2 M de sommets ne servent à rien pour une coque
 # ⚠️ 0,12 détruisait le maillage : le pantalon sortait en lambeaux.
@@ -138,7 +150,7 @@ def main():
     # Les hauteurs mesurées, converties en Z monde. 0 % = sommet du crâne.
     z_haut = hi.z - H * TAILLE
     z_bas = hi.z - H * CHEVILLE
-    print(f'  pantalon : de z={z_bas:.3f} à z={z_haut:.3f} '
+    print(f'  {PIECE} : de z={z_bas:.3f} à z={z_haut:.3f} '
           f'({(CHEVILLE-TAILLE)*100:.1f} % de la hauteur)')
 
     # ── LA COQUE ─────────────────────────────────────────────────────────
@@ -271,7 +283,7 @@ def main():
     proches = [(len(c), c) for c in groupes
                if sum(abs((mw @ v.co).x - cx) for v in c) / len(c) <= ECART_MAX]
     proches.sort(key=lambda t: -t[0])
-    gardees = [c for _, c in proches[:2]]
+    gardees = [c for _, c in proches[:N_MORCEAUX]]
     a_garder = {id(v) for c in gardees for v in c}
     jetes = [v for c in groupes for v in c if id(v) not in a_garder]
     gardes = len(gardees)
@@ -372,7 +384,7 @@ def main():
     mat = bpy.data.materials.new('tissu')
     mat.use_nodes = True
     p = mat.node_tree.nodes['Principled BSDF']
-    p.inputs['Base Color'].default_value = (0.106, 0.128, 0.062, 1)  # olive
+    p.inputs['Base Color'].default_value = (*COULEUR, 1)
     p.inputs['Roughness'].default_value = 0.92
     if 'Specular IOR Level' in p.inputs:
         p.inputs['Specular IOR Level'].default_value = 0.15
@@ -429,13 +441,13 @@ def main():
     os.makedirs(SORTIE, exist_ok=True)
     # 1. le pantalon SEUL — c'est la texture qui entrera dans le rig 2D
     corps.hide_render = True
-    sc.render.filepath = f'{SORTIE}/pantalon3d.png'
+    sc.render.filepath = f'{SORTIE}/{PIECE}3d.png'
     bpy.ops.render.render(write_still=True)
     # 2. porté, pour juger le fit
     corps.hide_render = False
-    sc.render.filepath = f'{SORTIE}/porte3d.png'
+    sc.render.filepath = f'{SORTIE}/porte-{PIECE}.png'
     bpy.ops.render.render(write_still=True)
-    print(f'  ÉCRIT {SORTIE}/pantalon3d.png et porte3d.png')
+    print(f'  ÉCRIT {SORTIE}/{PIECE}3d.png et porte-{PIECE}.png')
 
 
 main()

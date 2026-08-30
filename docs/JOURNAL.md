@@ -1427,3 +1427,44 @@ Les deux retirés :
 > pas laissé en place pendant qu'on passe à autre chose. Et `fill_holes` ne
 > mesurait pas ce que l'œil voit : un instrument juste sur sa propre définition
 > peut répondre à côté de la question posée.
+
+---
+
+# 30 août 2026 — le pipeline tient sur trois vêtements
+
+Med : « fais un autre vêtement pour tester le pipeline ».
+
+⭐ **Un vêtement est un jeu de bornes, pas un script.** Le même code produit les
+trois pièces ; seules changent des valeurs toutes MESURÉES sur le corps de base
+et lues dans `squelette.json` :
+
+```python
+PIECES = {
+    # nom      haut    bas     écart   morceaux
+    'bas':    (0.524, 0.917, 0.105, 2),   # taille → chevilles
+    'haut':   (0.300, 0.560, 0.105, 1),   # sous le menton → sous la taille
+    'pieds':  (0.905, 1.000, 0.105, 2),   # chevilles → sol
+}
+```
+
+Le nombre de morceaux n'est pas un réglage non plus : deux jambes, un torse,
+deux pieds. Le haut sort avec ses manches parce que les bras sont connectés au
+tronc — une seule composante — et les chaussures en deux, parce que les pieds
+sont séparés.
+
+| vêtement | surface | repris par le corps | trous |
+|---|---|---|---|
+| bas | 383 746 px | 1 313 (**0,34 %**) | 0 |
+| haut | 448 732 px | 1 140 (**0,25 %**) | 0 |
+| chaussures | 84 953 px | 414 (**0,49 %**) | 0 |
+
+## 🔴 Un instrument qui ne survit pas au changement de couleur
+
+Le détecteur de « peau au travers » testait `rouge > vert + 14`. Sur le pantalon
+olive il marchait ; sur un haut ROSE il a rendu **99,45 %** — il classait le
+vêtement lui-même comme de la peau.
+
+⭐ Le bon test ne regarde aucune couleur : on compare le rendu PORTÉ au rendu du
+vêtement SEUL, dans la zone du vêtement. Un pixel où les deux diffèrent est un
+pixel que le corps a repris. Indépendant de la teinte, donc valable pour toute
+pièce du catalogue.
