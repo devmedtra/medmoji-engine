@@ -61,6 +61,18 @@ def verifier(chemin_base, chemin_produit, zone, masque_vetement=None,
     if base.shape != prod.shape:
         return 1, [f'🔴 tailles différentes : {base.shape} vs {prod.shape}']
 
+    # 🔴 COMPARER DEUX IMAGES DANS LE MÊME ESPACE. La fabrique travaille sur
+    # l'original COMPOSÉ SUR BLANC ; ce témoin lisait le RGB brut, non composé.
+    # Sur les pixels d'alpha 251-254 — la frange d'anti-crénelage, 125 784 px
+    # ici — les deux diffèrent mécaniquement de 4/255. Le témoin rapportait
+    # donc un écart de 4 sur des pixels recopiés à l'IDENTIQUE, à un cheveu de
+    # sa propre tolérance (4). Composés du même côté : 0/255, exactement.
+    def _sur_blanc(x):
+        a = (x[:, :, 3:4] / 255.0)
+        return x[:, :, :3] * a + 255.0 * (1 - a)
+    base = np.dstack([_sur_blanc(base), base[:, :, 3]])
+    prod = np.dstack([_sur_blanc(prod), prod[:, :, 3]])
+
     corps = base[:, :, 3] > 250          # pixels pleins, hors frange
     ys = np.where(base[:, :, 3].any(1))[0]
     h0, h1 = ys.min(), ys.max()
