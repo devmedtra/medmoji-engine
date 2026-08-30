@@ -32,14 +32,24 @@ from scipy import ndimage
 # Ce que chaque zone n'a PAS le droit de toucher, en fraction de la hauteur du
 # personnage. Mesuré le 30 août : menton 28,1 %, poignet 59 %, mains 61-63 %,
 # doigts 64-69 %.
+# 🔴 UNE BANDE HORIZONTALE N'EST PAS UNE ZONE ANATOMIQUE.
+# Premiere version : « les mains » etait la bande 58-70 % de la hauteur. Or a
+# ces hauteurs se trouvent les mains ET les hanches et le haut des cuisses, ou
+# le pantalon doit evidemment etre. Le temoin comptait donc le pantalon comme
+# un empietement, et rendait 73,8 % puis 73,0 % sur deux images DIFFERENTES.
+# Deux valeurs quasi identiques sur deux entrees differentes : l instrument
+# etait casse, pas le sujet.
 INTERDITS = {
-    'haut':  [('le visage', 0.00, 0.28), ('les mains', 0.58, 0.70),
-              ('les jambes', 0.72, 1.00)],
+    'haut':  [('le visage', 0.00, 0.28), ('les jambes', 0.72, 1.00)],
     'bas':   [('le visage', 0.00, 0.28), ('le torse', 0.30, 0.50),
-              ('les mains', 0.58, 0.70), ('les pieds', 0.94, 1.00)],
+              ('les pieds', 0.94, 1.00)],
     'pieds': [('le visage', 0.00, 0.28), ('le torse', 0.30, 0.50),
               ('les cuisses', 0.55, 0.85)],
 }
+
+# Les membres se prennent dans leur masque GEOMETRIQUE exact, jamais dans une
+# tranche de hauteur. Calcule une fois, le corps de base ne bougeant jamais.
+MASQUE_MEMBRES = '/root/medtra-avatar/createur/masque-bras-fixe.png'
 
 
 def verifier(chemin_base, chemin_produit, zone, masque_vetement=None,
@@ -101,12 +111,70 @@ def verifier(chemin_base, chemin_produit, zone, masque_vetement=None,
             rapport.append(f'🔴 le vêtement empiète sur {nom} : {n:,} px '
                            f'({n/max(1,surface)*100:.1f} % de la zone)')
 
+    # ── 2bis. LES MEMBRES, DANS LEUR FORME EXACTE ─────────────────────────
+    # C est ce controle qui attrape les MOUFLES : du tissu peint AUTOUR des
+    # mains, hors d elles, donc invisible a un temoin qui ne regarde que les
+    # pixels des mains eux-memes.
+    import os as _os
+    if _os.path.exists(MASQUE_MEMBRES):
+        membres = np.asarray(Image.open(MASQUE_MEMBRES).convert('L')) > 127
+        membres = membres & corps
+        proche = ndimage.binary_dilation(membres, np.ones((15, 15))) & ~membres
+        sur = int((vet & membres).sum())
+        autour = int((vet & proche).sum())
+        rapport.append(f'membres : {membres.sum():,} px, vetement dessus '
+                       f'{sur:,}, autour {autour:,}')
+        if sur > membres.sum() * 0.03:
+            defauts += 1
+            rapport.append(f'🔴 le vetement RECOUVRE les membres : '
+                           f'{sur/max(1,membres.sum())*100:.1f} %')
+        if autour > proche.sum() * 0.25:
+            defauts += 1
+            rapport.append(f'🔴 le vetement CERNE les membres (moufles) : '
+                           f'{autour/max(1,proche.sum())*100:.1f} % du pourtour')
+
+    # ── 2ter. LE VÊTEMENT NE DOIT PAS ÊTRE DÉCHIRÉ ────────────────────────
+    # 🔴 CE TÉMOIN A MANQUÉ TROIS FOIS. Le pantalon était visiblement coupé en
+    # deux, et deux instruments successifs ont répondu « rien à signaler » :
+    #
+    #   · composantes connexes du masque → 1 seule, dans les trois essais ;
+    #   · « lignes couvertes à plus de 25 % » → 31 sur 31.
+    #
+    # Le premier ne voit rien parce que les deux moitiés se rejoignent par les
+    # côtés. Le second parce qu'il divisait la LARGEUR DU VÊTEMENT par celle du
+    # corps : un pantalon déborde de la jambe nue, d'où une « couverture » de
+    # 134 % — valeur absurde qui aurait dû m'arrêter net.
+    #
+    # ⭐ Ce qui se mesure ici est la seule chose que l'œil voyait : une bande
+    # de PEAU NUE à l'intérieur de la silhouette, sous la taille. Le ratio est
+    # borné au corps, donc majoré par 100 % — l'assertion le garantit.
+    if zone == 'bas':
+        d0, f0 = 0.56, 0.92
+        prof = [(y, int((vet & corps)[y].sum()) / int(corps[y].sum()) * 100)
+                for y in range(h0 + int(Hp * d0), h0 + int(Hp * f0))
+                if corps[y].sum() > 20]
+        if prof:
+            pire = max(v for _, v in prof)
+            assert pire <= 100.001, f'instrument cassé : couverture {pire:.0f} %'
+            nues = [y for y, v in prof if v < 50]
+            rapport.append(f'jambes : couverture médiane '
+                           f'{np.median([v for _, v in prof]):.0f} %, '
+                           f'{len(nues)} ligne(s) sous 50 %')
+            if len(nues) > 12:      # ~0,5 % de la hauteur : au-delà, ça se voit
+                defauts += 1
+                a, b = (nues[0] - h0) / Hp * 100, (nues[-1] - h0) / Hp * 100
+                rapport.append(f'🔴 le vêtement est DÉCHIRÉ : bande de peau nue '
+                               f'de {a:.1f} % à {b:.1f} % ({len(nues)} lignes)')
+
     # ── 3. COUVERTURE ATTENDUE ────────────────────────────────────────────
     # Un pantalon qui s'arrête à mi-mollet est un défaut, pas un style.
     if zone == 'bas':
         z = np.zeros(corps.shape, bool)
         z[h0 + int(Hp * .85):h0 + int(Hp * .92)] = True
-        couvert = (vet & z).sum() / max(1, (z & corps).sum()) * 100
+        # ⚠️ borné au corps : un pantalon est plus large que la jambe nue, donc
+        # (vet & z) / (z & corps) dépasse 100 % — c'est le bug qui rendait
+        # « chevilles couvertes : 145 % ».
+        couvert = (vet & corps & z).sum() / max(1, (z & corps).sum()) * 100
         rapport.append(f'chevilles couvertes : {couvert:.0f} %')
         if couvert < 40:
             defauts += 1

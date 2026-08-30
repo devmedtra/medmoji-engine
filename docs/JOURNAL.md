@@ -257,3 +257,106 @@ automatique du poignet paraissait plus rigoureuse et donnait un résultat pire.
 **L'œil humain trouve ce que les chiffres ratent.** La cape, la bavure au cou, la
 main recouverte : trois défauts vus d'un coup d'œil, dont deux que les témoins
 déclaraient bons.
+
+---
+
+# 30 août 2026 — la déchirure du pantalon
+
+## Le défaut
+
+Le pantalon cargo sortait coupé en deux : une bande de peau nue en travers des
+cuisses, et sous elle un second vêtement que le modèle terminait proprement,
+ourlets compris. À `strength 0,88` c'est explicite — un short blanc à braguette
+en haut, un cargo olive en bas, **deux vêtements différents**.
+
+## Deux hypothèses, une réfutée par la mesure
+
+Le conseil d'IA proposait :
+
+- **A** — masque d'inpaint non connexe au genou, perdu au sous-échantillonnage
+  latent (`vae_scale_factor = 8`).
+- **B** — masque connexe, le débruiteur lâche la structure verticale à
+  `strength 0,62`.
+
+Balayage de `strength`, masque identique, mesure de la bande de peau nue *à
+l'intérieur* de la silhouette :
+
+| `strength` | bande de peau nue | lignes |
+|---|---|---|
+| 0,62 | 68,1 → 69,8 % de la hauteur | 43 |
+| 0,75 | 68,1 → 69,8 % | 42 |
+| 0,88 | 67,1 → 72,7 % | **132** |
+
+Monter le `strength` **aggrave d'un facteur 3**. B est morte.
+
+## La cause : ce n'était pas le genou
+
+Le conseil objectait à sa propre hypothèse A : « si `membres` = bras/mains,
+R = 40 n'atteint **pas** les genoux ». Exact — et c'est ce qui a fait chercher
+au mauvais endroit pendant deux essais.
+
+La bande est à **68-70 % de la hauteur**, soit la hauteur des **doigts**
+(repères mesurés : menton 28,1 %, poignet 59 %, mains 61-63 %, doigts 64-69 %).
+Les bras pendent le long du corps. Le disque d'exclusion R = 40 autour de chaque
+main creuse une **tranchée horizontale** dans le pantalon des deux côtés, et le
+modèle termine le vêtement au bord de la tranchée.
+
+Distance de chaque pixel de peau nue (60-80 % de hauteur) au membre le plus proche :
+
+| `strength` | peau nue | médiane | à moins de 40 px (= R) |
+|---|---|---|---|
+| 0,62 | 27 492 px | 26 px | **75,2 %** |
+| 0,75 | 27 521 px | 26 px | **75,0 %** |
+| 0,88 | 55 847 px | 59 px | 37,0 % |
+
+## Le correctif : l'exclusion est anatomique, pas métrique
+
+Une **moufle** est du tissu peint **dans le fond** autour de la main. Un
+**pantalon** est du tissu peint **sur le corps**. Les deux se séparent sans
+aucun paramètre à régler :
+
+```python
+# avant — un disque, qui ne sait pas ce qu'il mange
+interdit = d < R
+# après — la géométrie décide, l'anatomie tranche
+interdit = (d < R) & (~corps | membres)
+```
+
+Conséquence voulue : le vêtement a le droit de passer **derrière** la main, et
+le recollage des membres (`out[membres] = a_or[membres]`) la remet par-dessus.
+C'est l'occlusion correcte — qu'un disque isotrope interdisait par construction.
+
+Prédiction avant génération : 74,8 % des moufles de l'essai raté restent
+exclues (elles sont dans le fond), 20 668 px de cuisse rendus au pantalon.
+
+| critère | isotrope | anatomique |
+|---|---|---|
+| bande de peau nue | 50 lignes | **7 lignes** |
+| vêtement **sur** les membres | — | 205 px / 128 841 (**0,16 %**) |
+| éclats gris près des mains | 4 672 px | 3 865 px (**−17 %**) |
+| ourlet | — | 93,1 % (chevilles) |
+| corps hors vêtement modifié | — | 17 764 px (2,17 %), max 65/255 |
+
+## 🔴 Trois instruments qui ont déclaré « rien à signaler »
+
+Sur une image **visiblement** déchirée :
+
+| Instrument | Verdict rendu | Pourquoi il ne voyait rien |
+|---|---|---|
+| Composantes connexes du masque | **1 seule**, sur les trois essais | les deux moitiés se rejoignent par les côtés |
+| « lignes couvertes à plus de 25 % » | **31 sur 31** | seuil sous le niveau du défaut |
+| `largeur_vêtement / largeur_corps` | **couverture 134 %**, « chevilles 145 % » | un pantalon déborde de la jambe nue |
+
+> ⭐ **134 % de couverture est impossible.** La valeur absurde était là, dans la
+> sortie, et elle est passée une fois avant de m'arrêter. Une grandeur bornée
+> par construction doit être **assertée**, pas relue.
+
+Le témoin qui marche est borné au corps, et plante s'il dépasse :
+
+```python
+prof = [(y, (vet & corps)[y].sum() / corps[y].sum() * 100) for y in ...]
+assert max(v for _, v in prof) <= 100.001, 'instrument cassé'
+```
+
+Il attrape rétroactivement les trois essais ratés : 50, 68 et 277 lignes sous
+50 % de couverture.

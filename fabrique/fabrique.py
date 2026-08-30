@@ -97,6 +97,12 @@ MODELE_SDXL = 'diffusers/stable-diffusion-xl-1.0-inpainting-0.1'
 # Le masque des bras, calculé une fois par géométrie pure — le corps de base
 # ne bouge jamais, donc c'est un fichier et non un calcul.
 MASQUE_BRAS = f'{SORTIE}/masque-bras-fixe.png'
+# Portée de l'exclusion douce autour des bras et des mains. Se règle par
+# mesure : le témoin compte le pourtour des membres cerné par du tissu.
+# Rayon d'exclusion autour des membres, en pixels. Calculé sur la distribution
+# des distances, jamais choisi : les moufles sont à moins de 40 px des membres,
+# le vêtement légitime commence à 48 px.
+RAYON_MEMBRES = int(os.environ.get('MEDMOJI_RAYON', '40'))
 
 # ── Le gabarit, mesuré sur le personnage neutre validé ─────────────────────
 ZONES = {
@@ -235,13 +241,77 @@ def masque_zone(im, zone='haut'):
     # ⭐ LE TÉMOIN QUI MANQUAIT : un masque sans creux EST un trapèze.
     restants = sum(int(np.ptp(np.where(m[y])[0]) + 1 - len(np.where(m[y])[0]))
                    for y in range(haut, bas) if m[y].any())
+    # 🔴 EXCLUSION DOUCE DES MEMBRES — la vraie cause des moufles.
+    # Audit du 30 août : « ce n'est pas un problème de protection des mains,
+    # c'est un problème de FORME DU MASQUE. La dilatation isotrope remplit
+    # l'espace AUTOUR des mains ; SDXL lit cet îlot comme du tissu. »
+    #
+    # Le recollage a posteriori ne peut rien y faire : les pixels parasites
+    # sont HORS des mains, donc hors du booléen. Il faut que le modèle n'ait
+    # jamais le droit de peindre là — mais sans bord dur, qu'il négocie mal.
+    # D'où une exclusion GAUSSIENNE : le masque devient flottant près des
+    # membres au lieu d'y avoir une frontière anguleuse.
+    if os.path.exists(MASQUE_BRAS):
+        membres = np.asarray(Image.open(MASQUE_BRAS).convert('L')) > 127
+        # 🔴 EXCLUSION BINAIRE PAR DISTANCE, PAS UN FLOU.
+        #
+        # Deux erreurs corrigées ici, toutes deux mesurées le 30 août 2026 :
+        #
+        # 1. UN FLOU GAUSSIEN NE DILATE PAS. Un flou puis un seuil à 0,5 laisse
+        #    le niveau 0,5 sur le contour d'origine — noyau symétrique. On
+        #    achetait un lissage de coins, pas une zone d'exclusion. Effet
+        #    mesuré : moufles de 19 361 à 17 783 px, soit −8 %.
+        #
+        # 2. SDXL BINARISE LE MASQUE DE TOUTE FAÇON. Vérifié, pas supposé :
+        #       mask_processor.do_binarize = True   (diffusers 0.31)
+        #       vae_scale_factor = 8
+        #    Tout flottant est seuillé à 0,5 puis sous-échantillonné ×8. Une
+        #    rampe de 15 px devient 1,9 px latent. Le masque flottant n'a
+        #    jamais existé du point de vue du modèle.
+        #
+        # LE RAYON SE CALCULE, IL NE SE BALAIE PAS. Distribution mesurée des
+        # distances au masque des membres :
+        #       moufles          30 % du tissu à moins de 40 px
+        #       jambes (légitime) minimum 48 px
+        #    Les deux populations sont nettement séparées. R = 40 px les
+        #    distingue sans manger le pantalon.
+        #
+        # 🔴 MAIS UNE EXCLUSION ISOTROPE DÉCHIRE LE PANTALON. Mesuré le
+        # 30 août sur trois strengths : une bande de peau nue à 68-70 % de la
+        # hauteur, dont 75 % des pixels à moins de 40 px d'un membre. Ce n'est
+        # PAS le genou (l'hypothèse qu'on suivait) : c'est la hauteur des
+        # DOIGTS, qui pendent le long des cuisses. Le disque R=40 autour de
+        # chaque main creuse une tranchée horizontale de part et d'autre, et
+        # le modèle « termine » le vêtement au bord de la tranchée. Monter le
+        # strength aggrave : la bande passe de 43 lignes (0,62) à 132 (0,88).
+        #
+        # ⭐ LA SÉPARATION EST ANATOMIQUE, PAS MÉTRIQUE. Une moufle est du
+        # tissu peint dans le FOND autour de la main ; un pantalon est du
+        # tissu peint SUR le corps. Les deux se distinguent sans paramètre :
+        #
+        #       interdit = proche d'un membre ET (hors du corps OU sur le membre)
+        #
+        # Mesure de la règle : 74,8 % des moufles de l'essai raté restent
+        # exclues (elles sont dans le fond), et 20 668 px de cuisse sont rendus
+        # au pantalon. Le vêtement a désormais le droit de passer DERRIÈRE la
+        # main — le recollage des membres la remet par-dessus, ce qui est
+        # exactement l'occlusion voulue et qu'un disque isotrope interdisait.
+        d = ndimage.distance_transform_edt(~membres)
+        interdit = (d < RAYON_MEMBRES) & (~corps | membres)
+        avant = int(m.sum())
+        m = m & ~interdit
+        print(f'  exclusion anatomique à {RAYON_MEMBRES} px des membres : '
+              f'{avant - int(m.sum()):,} px retirés '
+              f'({int((m & (d < RAYON_MEMBRES)).sum()):,} px de corps préservés)')
+    m_img = Image.fromarray((m * 255).astype(np.uint8))
+
     print(f'  masque y={haut}-{bas}, dilatation {rayon} px '
           f'(creux médian du corps {int(np.median(creux)) if creux else 0} px)')
     print(f'  creux conservés : {restants:,} px  → '
           f'{"ÉPOUSE" if restants > 500 else "🔴 TRAPÈZE, le vêtement débordera"}')
     if restants <= 500:
         print("  ⚠️ le masque risque de sceller l'espace sous les bras")
-    return Image.fromarray((m * 255).astype(np.uint8))
+    return m_img
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -259,7 +329,7 @@ def format_travail(W, H, cible=1_100_000):
     return int(round(h * r / 8) * 8), int(round(h / 8) * 8)
 
 
-def preremplir(orig, mq, couleur):
+def preremplir_aplat(orig, mq, couleur):
     """Aplat bruité de la couleur cible AVANT l'inpainting.
 
     🔴 Sans lui, le modèle part de la PEAU qu'il voit et harmonise avec elle :
@@ -274,6 +344,39 @@ def preremplir(orig, mq, couleur):
     m = np.asarray(mq) > 127
     bruit = np.random.default_rng(GRAINE).normal(0, 9, size=(m.sum(), 3))
     a[m] = np.clip(np.array(couleur, np.float32) + bruit, 0, 255)
+    return Image.fromarray(a.astype(np.uint8))
+
+
+def preremplir(orig, mq, couleur):
+    """Décaler la TEINTE des pixels d'origine, au lieu de peindre un aplat.
+
+    ⭐ Amélioration issue de l'audit du 30 août 2026. Un aplat uni force le
+    modèle à réinventer toute la radiance : ombres, dégradés, occlusion. En
+    déplaçant seulement la teinte et en conservant saturation et valeur, on lui
+    donne l'éclairage 3D DÉJÀ PRÉSENT sur le corps — les volumes de la cuisse,
+    l'ombre sous le genou, la lumière venant du haut à gauche.
+
+    Le modèle n'a plus qu'à habiller une forme déjà éclairée.
+    """
+    import colorsys
+    a = np.asarray(orig).astype(np.float32).copy()
+    m = np.asarray(mq) > 127
+    if not m.any():
+        return Image.fromarray(a.astype(np.uint8))
+
+    r, v, b = [x / 255.0 for x in couleur]
+    h_cible, _, _ = colorsys.rgb_to_hsv(r, v, b)
+    _, s_cible, _ = colorsys.rgb_to_hsv(r, v, b)
+
+    px = a[m] / 255.0
+    mx = px.max(1); mn = px.min(1)
+    val = mx                                   # la VALEUR est conservée
+    # on impose teinte et saturation de la cible, on garde la luminosité locale
+    out = np.empty_like(px)
+    for i in range(len(px)):
+        out[i] = colorsys.hsv_to_rgb(h_cible, s_cible, float(val[i]))
+    bruit = np.random.default_rng(GRAINE).normal(0, 8 / 255.0, size=out.shape)
+    a[m] = np.clip((out + bruit) * 255.0, 0, 255)
     return Image.fromarray(a.astype(np.uint8))
 
 
@@ -310,7 +413,14 @@ def generer(orig, mq, description, couleur):
                          'photorealistic, flat vector, black outline, text, watermark'),
         image=preremplir(orig, mq, couleur).resize(GEN, Image.LANCZOS),
         mask_image=mq.resize(GEN, Image.NEAREST),
-        num_inference_steps=40, guidance_scale=8.0, strength=0.85,
+        # ⭐ RÉGLAGES CALIBRÉS PAR L'AUDIT du 30 août 2026.
+        #   strength 0,85 → 0,62 : à 0,85 l'init est oubliée vers le pas 15,
+        #     ce qui explique À LA FOIS le pré-remplissage sans effet ET le
+        #     pantalon arrêté à mi-mollet. À 0,62 on conserve 38 % de l'init,
+        #     donc la couleur et le volume de départ survivent.
+        #   guidance 8 → 7 : guidage haut + strength haute font surinterpréter
+        #     le prior « vêtement = manches », d'où les moufles.
+        num_inference_steps=40, guidance_scale=7.0, strength=float(os.environ.get('MEDMOJI_STRENGTH','0.62')),
         generator=torch.Generator('cuda').manual_seed(GRAINE),
     ).images[0].resize((W, H), Image.LANCZOS)
 
