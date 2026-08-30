@@ -1144,3 +1144,64 @@ vêtement : ce sont des défauts d'inpainting.
 > mesurant chacun proprement, sans jamais remettre en cause l'approche. Chaque
 > mesure était juste. La question « est-ce le bon outil » ne s'est pas posée
 > avant que Med la pose.
+
+---
+
+# 30 août 2026 — le pantalon en 3D, et la règle que Med a dû m'imprimer
+
+Med, deux messages : « fouille internet a chacune des etape arrete de essayer
+des truc **csa ton vrai defauts** », puis « non mais c serieux faut vraiment que
+tu imprime cette regles en permanance ».
+
+## 🔴 Ce que je venais de faire : six essais, zéro recherche
+
+1. tranche en Z → les mains prises dans le pantalon ;
+2. exclusion par distance à l'axe → bords en dents de scie ;
+3. décimation 0,12 → maillage en lambeaux → 0,28 ;
+4. suppression de sommets → `bisect_plane` ;
+5. filtre par composantes → 858 composantes, fissures dans le tissu ;
+6. remaillage voxel → **pantalon en cubes**.
+
+Une seule requête a ensuite donné la méthode du domaine, et trois bugs Blender
+documentés expliquant chacun de mes échecs :
+
+| ce que j'ai bricolé | ce que la documentation disait |
+|---|---|
+| remesh voxel | « creates blocky topology unsuitable for organic characters » |
+| voxel **puis** quadriflow | « non-manifolds are practically inevitable » (T70548) |
+| quadriflow qui échoue en silence | « does not work on tiny objects » (#106883) — mon objet fait 0,39 unité |
+| filtre par composantes | un scan a des sommets **dupliqués** : souder d'abord |
+| peau qui perce au genou | « Shrinkwrap modifier with a small positive offset (0.001-0.002) » |
+
+⭐ **Le `remove_doubles` en premier a tout changé** : 858 composantes → **7, dont
+2 gardées** (les deux jambes). Ce que j'attaquais par un filtre était un défaut
+de préparation du maillage.
+
+La règle est désormais écrite en mémoire permanente
+(`feedback_chercher_a_chaque_etape`), parce que celle de CLAUDE.md — « avant
+d'écrire un algorithme, chercher » — je l'appliquais au DÉBUT d'un chantier puis
+plus du tout, chaque correctif suivant me paraissant un simple ajustement.
+**Un correctif est un algorithme.**
+
+## Le résultat, sur les mêmes critères que le 2D
+
+| | démarcations | somme | bosses P95 | bosses > 6 px |
+|---|---|---|---|---|
+| 2D cargo | 12 | 29,8 | 12,0 | **47** |
+| 2D sans poches | 5 | 8,6 | 13,3 | **54** |
+| **3D — coque du corps** | 5 | 23,6 | **4,1** | **0** |
+
+> ⭐ **Zéro aileron.** Le défaut poursuivi pendant vingt-quatre heures — les
+> excroissances latérales que Med entourait en bleu — n'existe plus, et pas
+> parce qu'on l'a corrigé : parce qu'une coque **ne peut pas** en produire. La
+> P95 des bosses tombe à 4,1 px, exactement le niveau du corps lui-même (4,0).
+
+Ce qui reste est d'une autre nature : cinq démarcations horizontales dues au
+maillage du scan (une ligne au genou, des bords dentelés). C'est un problème de
+**topologie**, qui se résout — pas un prior de modèle génératif, qui ne se
+résout pas.
+
+**Sources**
+- Blender Studio, *Creating Clothing Basemeshes* — https://studio.blender.org/training/stylized-character-workflow/5d7f7fc5db37a94301d88ff9/
+- T70548, *Voxel Remesher breaks QuadriFlow* — https://developer.blender.org/T70548
+- #106883, *QuadriFlow does not work on tiny objects* — https://projects.blender.org/blender/blender/issues/106883
