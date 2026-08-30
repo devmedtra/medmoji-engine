@@ -630,9 +630,51 @@ def teindre(habille, masque_vet, couleur):
     # pixel à l'ouverture de son voisinage. Aucun seuil global, et il suit le
     # tissu quelle que soit sa luminosité. Mesuré ici : 2,2 % de la surface au
     # lieu de 12 %, en 48 pièces — cordons, passants, œillets.
+    #
+    # 🔴 ET IL NE SE CHERCHE PAS SUR LE BORD. `lum * masque_vet` vaut zéro hors
+    # du masque : le haut-de-forme voit cette MARCHE et la lit comme un détail
+    # clair. Taux de pixels laissés non teints, par distance au bord :
+    #
+    #     0-3 px  28,6 %      6-12 px   5,5 %      cœur (>25 px)  1,1 %
+    #     3-6 px  21,2 %     12-25 px   3,2 %
+    #
+    # D'où le liseré vert clair qui cernait chaque jambe, chaque poche et
+    # l'entrejambe sur les déclinaisons. On ne cherche les détails que là où le
+    # taux retombe à moins de 4 fois celui du cœur — au-delà de 12 px du bord.
+    # La couronne, elle, est du tissu et se teint comme tel.
+    coeur = ndimage.binary_erosion(masque_vet, np.ones((25, 25)))
     details = ndimage.binary_opening(
-        (ndimage.white_tophat(lum * masque_vet, size=15) > 18) & masque_vet,
+        (ndimage.white_tophat(lum * masque_vet, size=15) > 18) & coeur,
         np.ones((3, 3)))
+
+    # 🔴 ET UN DÉTAIL N'EST UN DÉTAIL QUE S'IL EST D'UNE AUTRE MATIÈRE.
+    # Ce qui restait après les deux corrections précédentes : 4 186 px, visibles
+    # comme des traits vert clair sur les poches et les genoux des déclinaisons
+    # rouge, bleue et violette. Mesuré :
+    #
+    #     couleur du tissu   (185, 194, 143)   saturation 0,26
+    #     couleur « détails » (190, 201, 151)   saturation 0,25   écart 7/255
+    #
+    # Même matière. C'était du RELIEF — des plis et des coutures du tissu — que
+    # le haut-de-forme détecte parce qu'il est clair, et que la couleur seule
+    # sépare correctement. Sur un cargo monochrome, une couture est de la
+    # couleur du cargo ; sur un jean, un cordon blanc a une saturation nulle
+    # face à un denim saturé, et lui doit survivre.
+    #
+    # ⭐ Le critère se lit sur la matière, pas sur la luminance : une pièce
+    # n'est préservée que si sa saturation s'écarte de celle du tissu de plus
+    # de la moitié. Aucun réglage à trouver — la comparaison est relative.
+    if details.any():
+        ref = masque_vet & ~details
+        col = a[:, :, :3]
+        s = lambda m: float(((col[m].mean(0).max() - col[m].mean(0).min())
+                             / max(col[m].mean(0).max(), 1)))
+        s_tissu = s(ref)
+        lab, n = ndimage.label(details)
+        for i in range(1, n + 1):
+            p = lab == i
+            if abs(s(p) - s_tissu) <= 0.5 * max(s_tissu, 0.02):
+                details[p] = False          # même matière → c'est du tissu
     tissu = masque_vet & ~details
 
     out = a.copy()
@@ -704,6 +746,25 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
     # PIEDS, qui se retrouvaient teints en rouge, bleu et violet. La zone, elle,
     # est déjà bornée par construction — on l'impose au masque, avec la marge
     # que le vêtement a le droit de prendre au-delà du corps.
+    # 🔴 SAM SOUS-COUVRE LE BORD DU VÊTEMENT. Mesuré sur le cargo : 19 427 px
+    # de tissu hors du masque sémantique — 14 186 d'entre eux à moins de 8 px
+    # de son contour. Non teints, ils formaient un liseré vert clair autour de
+    # chaque jambe et de chaque poche sur les déclinaisons rouge, bleue et
+    # violette. Le rognage par la zone n'y était pour rien : 0 px.
+    #
+    # ⭐ Les deux détections disent des choses différentes et complémentaires :
+    # SAM sait OÙ est le vêtement, le seuil sait CE QUI a changé. Leur
+    # intersection — le seuil, borné au voisinage immédiat de SAM — récupère le
+    # bord sans jamais inventer : un pixel n'est repris que s'il a changé ET
+    # qu'il touche ce que SAM a reconnu comme du tissu.
+    ecart = np.abs(np.asarray(orig.convert('RGB')).astype(float)
+                   - np.asarray(habille.convert('RGB')).astype(float)).max(2)
+    change = (ecart > 18) & (np.asarray(habille)[:, :, 3] > 200)
+    borde = ndimage.binary_dilation(mv, np.ones((17, 17))) & change
+    avant = int(mv.sum())
+    mv = mv | borde
+    print(f'  bord du vêtement récupéré : +{int(mv.sum()) - avant:,} px')
+
     mv = mv & (np.asarray(mq.filter(ImageFilter.GaussianBlur(4))) > 40)
     Image.fromarray((mv * 255).astype(np.uint8)).save(f'{SORTIE}/{nom}.masque.png')
 

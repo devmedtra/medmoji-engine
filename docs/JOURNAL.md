@@ -500,3 +500,29 @@ en 48 pièces (cordons, passants, œillets).
 
 **2. SAM ne connaît pas la zone.** Le masque sémantique incluait 9 954 px de
 pieds. La zone est bornée par construction : on la lui impose.
+
+## La teinture, en trois corrections mesurées
+
+Chacune corrige un seuil supposé par un critère calculé.
+
+| # | ce qui était supposé | ce qui a été mesuré | ce qui le remplace |
+|---|---|---|---|
+| 1 | « les détails clairs se séparent au 88ᵉ centile » | histogramme **unimodal**, pic à 201-212, centile à 208 → 45 988 px de tissu exclus | chapeau haut-de-forme : un détail est clair **localement** |
+| 2 | le haut-de-forme sur tout le masque | il voit la **marche du bord** : 28,6 % de non-teint à 0-3 px du contour contre 1,1 % au cœur | ne chercher les détails qu'au-delà de 12 px du bord |
+| 3 | « un détail clair est un autre matériau » | couleur (190,201,151) contre tissu (185,194,143), saturation 0,25 contre 0,26 — **même matière** | ne préserver que si la saturation s'écarte de plus de moitié |
+
+Plus deux défauts de masque :
+
+- **SAM ne connaît pas la zone** : 9 954 px de **pieds** dans son masque, teints en
+  rouge et violet. La zone est bornée par construction, on la lui impose.
+- **SAM sous-couvre le bord** : 19 427 px de tissu hors de son masque, dont
+  14 186 à moins de 8 px de son contour — un liseré vert clair autour de chaque
+  jambe et de chaque poche. Les deux détections disent des choses
+  complémentaires : **SAM sait où est le vêtement, le seuil sait ce qui a
+  changé**. Le seuil borné au voisinage de SAM récupère le bord sans inventer.
+
+| | avant | après |
+|---|---|---|
+| détails soustraits à la teinture | 36 093 px | **340 px** |
+| vêtement non teint | 19 427 px (5,1 %) | **5 671 px (1,5 %)** |
+| pieds teints | 9 954 px | **0** |
