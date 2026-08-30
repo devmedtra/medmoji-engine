@@ -116,23 +116,73 @@ def main():
     pantalon = bpy.context.view_layer.objects.active
     pantalon.name = 'pantalon'
 
-    # Décimer AVANT tout le reste : 1,2 M de sommets pour une coque de
-    # vêtement est un piège à mémoire, pas de la précision.
-    d = pantalon.modifiers.new('dec', 'DECIMATE')
-    d.ratio = DECIMATION
-    bpy.ops.object.modifier_apply(modifier=d.name)
-    # ⭐ SOUDER LES SOMMETS DOUBLES, AVANT TOUT LE RESTE. Un maillage issu d'un
-    # scan porte des sommets dupliqués qui coupent artificiellement la surface :
-    # c'est pour ça que la découpe rendait 858 composantes là où il y en a deux
-    # ou trois. Et QuadriFlow « can't operate when two vertices are very close
-    # together (up to a difference of 0.0001) ».
-    bm = bmesh.new()
-    bm.from_mesh(pantalon.data)
-    n0 = len(bm.verts)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=H * 0.0008)
-    bm.to_mesh(pantalon.data)
-    bm.free()
-    print(f'  décimé à {n0:,} puis soudé à {len(pantalon.data.vertices):,} sommets')
+    # ── LA RETOPOLOGIE, SUR LE CORPS ENTIER ──────────────────────────────
+    # 🔴 L'ORDRE ÉTAIT INVERSÉ. Je lançais QuadriFlow sur le pantalon DÉCOUPÉ :
+    # bords ouverts, donc non manifold, donc échec silencieux — 8 428 sommets à
+    # l'entrée comme à la sortie, quatre fois de suite.
+    #
+    # ⭐ Le corps entier, lui, est fermé. Mesuré : QuadriFlow y passe et rend
+    # 183 820 → 14 973 sommets en quads réguliers. On retopologise DONC AVANT
+    # de découper — c'est aussi ce que dit la méthode du domaine, qui suppose
+    # une topologie propre pour sélectionner des boucles d'arêtes.
+    #
+    # Et il faut mettre à l'échelle : bug Blender #106883, « QuadriFlow remesh
+    # does not work on tiny objects ».
+    # 🔴 ET AVANT TOUT NETTOYAGE. Mesuré : QuadriFlow passe sur le maillage
+    # BRUT (183 820 → 14 973 sommets) et échoue sur le même maillage décimé
+    # puis soudé (41 224 → 41 224). Mes étapes de préparation le cassaient.
+    # Il produit lui-même une topologie propre : il n'a pas besoin qu'on la
+    # lui prépare, il faut au contraire ne rien toucher avant lui.
+    # ⚠️ Les normales scindées personnalisées viennent du GLB et produisent des
+    # LIGNES D'OMBRE qui n'existent pas dans la géométrie. À effacer avant tout,
+    # sinon on cherche un défaut de forme là où c'est un défaut d'ombrage.
+    try:
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()
+        print('  normales scindées du GLB : effacées')
+    except Exception:
+        pass
+    # ⭐ D'ABORD RENDRE LE MAILLAGE MANIFOLD. C'est la cause racine de tout ce
+    # qui précède : le scan TRELLIS porte **73 662 arêtes non-manifold sur
+    # 474 024**, et chaque opération en aval en hérite — QuadriFlow rendait
+    # 393 composantes sur un corps qui n'en a qu'une, la coupe en donnait 1 971.
+    #
+    # Le voxel remesh est fait pour ça : il reconstruit une surface fermée à
+    # partir du volume. Mesuré, aux trois résolutions essayées :
+    #
+    #     0,0040 →  72 782 sommets · 0 non-manifold · 1 composante  (mais CUBIQUE)
+    #     0,0020 → 293 154 sommets · 0 non-manifold · 1 composante
+    #     0,0012 → 815 894 sommets · 0 non-manifold · 1 composante
+    #
+    # Mon erreur initiale n'était pas l'outil, c'était sa RÉSOLUTION : à 0,004,
+    # 250 voxels sur la hauteur, les cubes se voient. À 0,002 ils ne se voient
+    # plus, et QuadriFlow reçoit enfin ce qu'il exige.
+    vx = pantalon.modifiers.new('vox', 'REMESH')
+    vx.mode = 'VOXEL'
+    vx.voxel_size = H * 0.002
+    vx.use_smooth_shade = True
+    bpy.ops.object.modifier_apply(modifier=vx.name)
+    print(f'  voxel (manifold) : {len(pantalon.data.vertices):,} sommets')
+
+    ECHELLE = 100.0
+    pantalon.scale = (ECHELLE,) * 3
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    n_av = len(pantalon.data.vertices)
+    try:
+        # ⚠️ `use_preserve_volume` N'EXISTE PAS dans QuadriFlow — vérifié dans
+        # l'API de Blender 4.2.9, les paramètres sont use_mesh_symmetry,
+        # use_preserve_sharp, use_preserve_boundary, preserve_attributes,
+        # smooth_normals, mode, target_ratio, target_edge_length, target_faces,
+        # mesh_area, seed. L'option « preserve volume » que la documentation
+        # mentionne appartient au VOXEL Remesh. Lire l'API avant d'écrire.
+        bpy.ops.object.quadriflow_remesh(target_faces=30000,
+                                         use_preserve_boundary=True,
+                                         smooth_normals=True)
+        print(f'  retopologie quads : {n_av:,} → '
+              f'{len(pantalon.data.vertices):,} sommets')
+    except Exception as e:
+        print(f'  🔴 quadriflow refuse : {e}')
+    pantalon.scale = (1 / ECHELLE,) * 3
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     # ── LA COUPE ─────────────────────────────────────────────────────────
     # 🔴 SUPPRIMER DES SOMMETS DONNE UN BORD EN ESCALIER. Premier essai : on
@@ -178,14 +228,20 @@ def main():
                     vus.add(o.index)
                     pile.append(o)
         groupes.append(comp)
-    jetes = []
-    gardes = 0
-    for comp in groupes:
-        xs = [abs((mw @ v.co).x - cx) for v in comp]
-        if len(comp) < 40 or (sum(xs) / len(xs)) > ECART_MAX:
-            jetes.extend(comp)
-        else:
-            gardes += 1
+    # 🔴 « MOINS DE 40 SOMMETS » EST UN SEUIL ARBITRAIRE, et il casse dès que
+    # la densité change : après retopologie à 12 040 sommets, il a jeté des
+    # morceaux entiers du pantalon — 139 composantes, 30 gardées, un vêtement
+    # en pièces.
+    #
+    # ⭐ Le nombre de jambes, lui, ne dépend d'aucun réglage : il y en a DEUX.
+    # On garde les deux plus grosses composantes proches de l'axe, un point.
+    proches = [(len(c), c) for c in groupes
+               if sum(abs((mw @ v.co).x - cx) for v in c) / len(c) <= ECART_MAX]
+    proches.sort(key=lambda t: -t[0])
+    gardees = [c for _, c in proches[:2]]
+    a_garder = {id(v) for c in gardees for v in c}
+    jetes = [v for c in groupes for v in c if id(v) not in a_garder]
+    gardes = len(gardees)
     if jetes:
         bmesh.ops.delete(bm, geom=jetes, context='VERTS')
     bm.to_mesh(pantalon.data)
@@ -213,33 +269,6 @@ def main():
     # laisse une topologie cubique. QuadriFlow, libre et intégré à Blender,
     # reconstruit ensuite des quads alignés sur le flux de la surface — celle
     # dont le skinning a besoin pour se déformer proprement.
-    # 🔴 PAS DE VOXEL REMESH. Deux raisons documentées, l'une et l'autre
-    # vérifiées sur l'essai précédent :
-    #   · « Voxel Remesh […] creates blocky topology unsuitable for organic
-    #     characters » — le pantalon est sorti en cubes, littéralement ;
-    #   · « non-manifolds are practically inevitable when using it with Voxel
-    #     Remesher » (Blender T70548) — d'où l'échec silencieux de QuadriFlow
-    #     juste après, 25 550 sommets à l'entrée comme à la sortie.
-    #
-    # ⭐ QuadriFlow seul, mais à L'ÉCHELLE. Bug Blender #106883, « QuadriFlow
-    # remesh does not work on tiny objects » : sur un objet de 0,39 unité il
-    # rend une erreur de manifold sur un maillage pourtant propre. On agrandit,
-    # on remaille, on remet — c'est le contournement officiel.
-    n_av = len(pantalon.data.vertices)
-    bpy.ops.object.select_all(action='DESELECT')
-    pantalon.select_set(True)
-    bpy.context.view_layer.objects.active = pantalon
-    ECHELLE = 100.0
-    pantalon.scale = (ECHELLE, ECHELLE, ECHELLE)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    try:
-        bpy.ops.object.quadriflow_remesh(target_faces=8000)
-        print(f'  quadriflow : {n_av:,} → {len(pantalon.data.vertices):,} sommets')
-    except Exception as e:
-        print(f'  🔴 quadriflow refuse : {type(e).__name__} — {e}')
-    pantalon.scale = (1 / ECHELLE, 1 / ECHELLE, 1 / ECHELLE)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
     # ── L'ÉPAISSEUR ──────────────────────────────────────────────────────
     # ⭐ Le tissu est DEHORS : offset 1 pousse la coque vers l'extérieur, donc
     # le pantalon enveloppe la jambe au lieu de la traverser.
@@ -248,7 +277,30 @@ def main():
     s.offset = 1.0
     bpy.ops.object.modifier_apply(modifier=s.name)
 
-    # ── CONTRE LE CLIPPING : SHRINKWRAP À OFFSET ─────────────────────────
+    # 🔴 UN SMOOTH ORDINAIRE CONTRACTE. Mesuré : avec `SMOOTH` factor 1,0 sur
+    # 12 passes, la surface devient belle (démarcations 23,6 → 11,3) mais le
+    # vêtement rentre SOUS la peau — 41 161 px de sous-vêtement visibles au
+    # travers, contre 107 avant lissage. Lisser et rester au-dessus du corps
+    # s'opposaient, et le Shrinkwrap replacé après défaisait le lissage (22,4).
+    #
+    # ⭐ `LAPLACIANSMOOTH` a l'option qui lève le conflit : « Preserve Volume
+    # prevents the scale from tending to shrink when repeats or lambda
+    # coefficients are large ». On lisse sans rentrer.
+    # ⭐ Léger : une topologie en quads réguliers n'a plus besoin d'être
+    # matraquée. Les 12 passes précédentes servaient à rattraper un maillage de
+    # scan, et c'est ce matraquage qui faisait rentrer le vêtement sous la peau.
+    sm = pantalon.modifiers.new('lis', 'LAPLACIANSMOOTH')
+    sm.lambda_factor = 2.0
+    sm.iterations = 3
+    sm.use_volume_preserve = True
+    sm.use_x = sm.use_y = sm.use_z = True
+    bpy.ops.object.modifier_apply(modifier=sm.name)
+
+    # 🔴 L'ORDRE : LE SHRINKWRAP EN DERNIER. Il était placé AVANT le lissage, et
+    # le lissage a défait son travail — un Smooth CONTRACTE la surface, donc le
+    # pantalon est repassé sous la peau : plaques de corps visibles au travers,
+    # exactement le clipping que le shrinkwrap devait empêcher.
+    # Le dernier modificateur qui touche la position est celui qui décide.
     # La méthode établie du domaine, que je n'avais pas cherchée : « use a
     # Shrinkwrap modifier with a small positive offset (0.001-0.002 units) »
     # pour empêcher un vêtement ajusté de traverser le corps. C'est exactement
@@ -261,10 +313,6 @@ def main():
     bpy.ops.object.modifier_apply(modifier=sw.name)
 
     # un lissage léger : la décimation laisse des arêtes dures
-    sm = pantalon.modifiers.new('lis', 'SMOOTH')
-    sm.factor = 0.5
-    sm.iterations = 3
-    bpy.ops.object.modifier_apply(modifier=sm.name)
     bpy.ops.object.shade_smooth()
 
     # ── LE MATÉRIAU — la couleur est un réglage, pas une texture ─────────

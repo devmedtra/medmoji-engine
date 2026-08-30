@@ -1205,3 +1205,83 @@ résout pas.
 - Blender Studio, *Creating Clothing Basemeshes* — https://studio.blender.org/training/stylized-character-workflow/5d7f7fc5db37a94301d88ff9/
 - T70548, *Voxel Remesher breaks QuadriFlow* — https://developer.blender.org/T70548
 - #106883, *QuadriFlow does not work on tiny objects* — https://projects.blender.org/blender/blender/issues/106883
+
+---
+
+# 30 août 2026 — la cause racine : 73 662 arêtes non-manifold
+
+Med : « regle les demarcations pis le maillage », puis, après un nouvel échec :
+« verifie le web pourquoi sa la echouer ».
+
+## Ce que la recherche a donné, étape par étape
+
+| symptôme | ce que la documentation disait |
+|---|---|
+| lignes horizontales sur le tissu | « for Meshy-generated models, **clear Custom Split Normals Data** to fix shading artifacts » — un défaut d'OMBRAGE, pas de forme |
+| séquence de nettoyage | « Merge by Distance, Delete Loose, Recalculate Normals, Make Manifold, **in that order** » — je n'appliquais que la première |
+| lissage qui fait rentrer le vêtement | « Preserve Volume prevents the scale from tending to shrink » |
+| QuadriFlow muet | « does not work on tiny objects » (#106883) ; « non-manifolds are practically inevitable when using it with Voxel Remesher » (T70548) |
+
+## 🔴 Et une chose que la recherche a dite de travers
+
+Un résumé annonçait que QuadriFlow a une option « try to preserve the original
+volume ». **Elle n'existe pas.** Lecture de l'API de Blender 4.2.9 :
+
+```
+use_mesh_symmetry · use_preserve_sharp · use_preserve_boundary
+preserve_attributes · smooth_normals · mode · target_ratio
+target_edge_length · target_faces · mesh_area · seed
+```
+
+L'option « preserve volume » appartient au **Voxel** Remesh. J'aurais écrit du
+code sur la foi d'un résumé si je n'avais pas lu l'API. ⭐ Chercher n'est pas
+croire : la source primaire tranche.
+
+## La cause racine, enfin mesurée
+
+```
+maillage TRELLIS : 73 662 arêtes non-manifold sur 474 024
+```
+
+Tout héritait de ce défaut. QuadriFlow rendait **393 composantes** sur un corps
+qui n'en a qu'une ; après découpe, **1 971**. Mes filtres, mes seuils, mes
+lissages n'attaquaient que des symptômes.
+
+Le voxel remesh est fait pour ça — il reconstruit une surface fermée à partir du
+volume. Mesuré aux trois résolutions :
+
+| taille de voxel | sommets | non-manifold | composantes |
+|---|---|---|---|
+| 0,0040 | 72 782 | **0** | **1** | *(mais cubique — mon premier essai)* |
+| 0,0020 | 293 154 | **0** | **1** |
+| 0,0012 | 815 894 | **0** | **1** |
+
+> ⭐ **Mon erreur initiale n'était pas l'outil, c'était sa RÉSOLUTION.** À 0,004,
+> 250 voxels sur la hauteur : les cubes se voient, et j'en ai conclu que le
+> voxel était le mauvais choix. À 0,002 ils ne se voient plus.
+
+## Résultat
+
+| | démarcations sur une jambe | somme | peau au travers | sous-vêt au travers |
+|---|---|---|---|---|
+| 2D cargo | 6 | 21,2 | — | — |
+| 2D sans poches | **1** | **2,3** | — | — |
+| 3D scan brut | 2 | 13,8 | 2 105 px | 107 px |
+| **3D voxel manifold** | 2 | 15,5 | **532 px** | **0 px** |
+
+**Le maillage est réglé** : manifold, 3 composantes au lieu de 1 971, zéro
+sous-vêtement visible au travers, surface lisse sans cube ni fissure.
+
+**Les démarcations, non** — il en reste deux, à 82 % et 83 %, c'est-à-dire au
+GENOU (mesuré à 80,3 %). Ce n'est plus un artefact de traitement : la coque
+reproduit fidèlement le pli du genou du corps 3D. Le 2D sans poches reste
+meilleur sur ce seul critère (2,3 contre 15,5), et moins bon sur tous les
+autres.
+
+## 🔴 Un indicateur de plus qui comptait la géométrie
+
+Le profil de luminance moyenné sur les DEUX jambes donnait sa plus forte
+« démarcation » (16,5) à **72,6 %** — la fourche, mesurée à 72,1 %. Quand le
+vêtement passe d'une pièce à deux jambes, la moyenne saute mécaniquement.
+L'indicateur comptait l'entrejambe comme un défaut. Mesuré sur **une** jambe,
+sous la fourche, il dit enfin quelque chose.
