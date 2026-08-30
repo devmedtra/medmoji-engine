@@ -139,6 +139,21 @@ Chaque contrôle existe parce qu'un défaut est passé sans lui.
 
 ---
 
+## Documentation
+
+| Document | Contenu |
+|---|---|
+| [docs/VISION.md](docs/VISION.md) | la vision produit — le personnage, l'économie du salon, les moteurs, l'échelle |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | l'architecture technique en 15 sections, avec l'audit des moteurs existants |
+| [docs/JOURNAL.md](docs/JOURNAL.md) | le journal des défauts — chacun avec sa mesure et le témoin qu'il a laissé |
+
+Le journal mérite une mention particulière : il documente huit défauts de la
+Fabrique et trois du Moteur, dont cinq d'abord traités au symptôme avant que la
+cause ne soit mesurée. Il contient aussi la liste des **instruments cassés** —
+les mesures qui mentaient, et comment on s'en aperçoit.
+
+---
+
 ## Licence
 
 Propriétaire — Medtra inc. Les briques tierces conservent la leur.
