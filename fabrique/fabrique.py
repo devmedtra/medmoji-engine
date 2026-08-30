@@ -335,7 +335,7 @@ def recoller(orig, genere, mq, src):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def masque_vetement(chemin_habille, chemin_masque_semantique=None,
-                    corps=None, habille=None):
+                    corps=None, habille=None, autoriser_repli=False):
     """Le masque exact du vêtement produit, pour la teinture et les calques.
 
     🔴 UN SEUIL NE SAIT PAS CE QU'EST UN VÊTEMENT. Mesuré le 30 août : une
@@ -352,8 +352,34 @@ def masque_vetement(chemin_habille, chemin_masque_semantique=None,
         print(f'  masque sémantique : {m.sum():,} px')
         return m
 
-    print('  ⚠️ PAS DE MASQUE SÉMANTIQUE — repli par différence, imprécis aux '
-          'ombres du cou et des épaules')
+    # 🔴 FAIL-FAST : on REFUSE plutôt que de produire un asset abîmé.
+    #
+    # Med, 30 août 2026, en voyant les plaques sombres sur l'épaule : « on ne
+    # peut rien tirer de la détection par seuil ». Le test A/B l'a confirmé —
+    # même teinture, même couleur, seul le masque change :
+    #
+    #     masque par différence   549 500 px
+    #     masque sémantique       534 045 px
+    #       peau classée « tissu » par la différence : 16 449 px
+    #
+    # Ces 16 449 pixels de transition — anti-crénelage, ombres douces — ne font
+    # pas que salir les bords. Ils DÉCALENT le 88ᵉ centile qui sépare le tissu
+    # des détails clairs : 63 498 px « clairs » au lieu de 57 758, donc des
+    # ombres du vêtement classées « détail à préserver » et laissées en gris
+    # luisant au milieu du bleu. L'effet « sac poubelle ».
+    #
+    # ⭐ La fonction de teinture est innocente : elle calculait juste sur des
+    # données fausses. Un avertissement laissait passer l'asset ; seul un refus
+    # protège le catalogue.
+    if not autoriser_repli:
+        sys.exit(
+            f'🔴 masque sémantique absent : {chemin_masque_semantique}\n'
+            '   Passer la pièce au segmenteur (Upper Clothes / Coat / Lower\n'
+            '   Clothes / Shoe) AVANT de teindre. La détection par seuil\n'
+            '   classe 16 449 px de peau comme du tissu et abîme le rendu.\n'
+            '   Pour un essai hors production : autoriser_repli=True.')
+
+    print('  ⚠️ REPLI PAR DIFFÉRENCE — hors production uniquement')
     ec = np.abs(corps[:, :, :3] - habille[:, :, :3]).max(2)
     m = (ec > 18) & (habille[:, :, 3] > 200)
     m = ndimage.binary_opening(ndimage.binary_closing(m, np.ones((9, 9))),
@@ -430,7 +456,7 @@ def ombre_contact(habille, masque_vet, force=0.42, flou=14, decalage=7):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
-              teintes=None, masque_semantique=None):
+              teintes=None, masque_semantique=None, autoriser_repli=False):
     src = Image.open(BASE)
     orig = sur_blanc(src)
 
@@ -449,7 +475,8 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
     # ⚠️ Le masque du vêtement se calcule AVANT toute ombre.
     mv = masque_vetement(f'{SORTIE}/{nom}.png', masque_semantique,
                          np.asarray(orig.convert('RGBA')).astype(float),
-                         np.asarray(habille).astype(float))
+                         np.asarray(habille).astype(float),
+                         autoriser_repli=autoriser_repli)
     Image.fromarray((mv * 255).astype(np.uint8)).save(f'{SORTIE}/{nom}.masque.png')
 
     # puis la teinture, puis seulement l'ombre

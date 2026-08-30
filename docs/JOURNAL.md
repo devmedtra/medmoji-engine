@@ -116,7 +116,34 @@ peau classée « vêtement »  433 789 px
 
 Le masque vient désormais d'un segmenteur qui sait ce qu'**est** un vêtement.
 
-### 8. La manche recouvrait la main
+### 8. La teinture sur masque approximatif — le test A/B qui innocente
+
+Des plaques sombres sur l'épaule, un effet « sac poubelle » luisant sur la
+manche bleue. Test A/B : même fonction de teinture, mêmes couleurs, seul le
+masque change.
+
+```
+masque par différence   549 500 px
+masque sémantique       534 045 px
+  peau classée « tissu » par la différence :  16 449 px
+  tissu oublié par la différence           :     994 px
+```
+
+Ces 16 449 pixels de transition — anti-crénelage, ombres douces de l'épaule —
+ne font pas que salir les bords. Ils **décalent le 88ᵉ centile** qui sépare le
+tissu des détails clairs : 63 498 px classés « clairs » au lieu de 57 758. Des
+ombres du vêtement se retrouvent traitées comme des reflets à préserver, et
+restent en gris luisant au milieu du bleu.
+
+> ⭐ **La fonction de teinture est innocente.** Elle calculait juste sur des
+> données fausses. Une hypothèse a d'ailleurs été écartée par la mesure :
+> l'écrêtage arithmétique. Zéro valeur ne dépassait 255 avant le clip.
+
+**Conséquence architecturale** : le masque sémantique devient obligatoire, et le
+pipeline **refuse** au lieu d'avertir. Un avertissement laissait passer l'asset ;
+seul un refus protège le catalogue.
+
+### 9. La manche recouvrait la main
 La borne de fin était fixée à 62 %. La courbe de largeur du bras :
 ```
 50 → 59 %   142 → 95 px    l'avant-bras s'affine      → POIGNET à 59 %
