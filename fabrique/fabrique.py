@@ -612,8 +612,27 @@ def teindre(habille, masque_vet, couleur):
     """
     a = np.asarray(habille).astype(float)
     lum = a[:, :, :3] @ [0.2126, 0.7152, 0.0722]
+    # 🔴 UN CENTILE GLOBAL N'EST PAS UN DÉTECTEUR DE DÉTAILS.
+    # Première version : `lum > percentile(lum[masque], 88)`. Elle exclut 12 %
+    # des pixels de la teinture PAR CONSTRUCTION, quel que soit le vêtement.
+    # Le raisonnement supposait deux populations séparées — un tissu sombre et
+    # des détails clairs. Histogramme mesuré sous le masque, cargo vert clair :
+    #
+    #     un seul pic, massif, à 201-212/255 ; médiane 191 ; 88ᵉ centile 208
+    #
+    # Le centile tombe EN PLEIN DANS LE PIC DU TISSU : 45 988 px de tissu
+    # ordinaire échappaient à la teinture. D'où les plaques vert clair sur les
+    # cuisses et les mollets des déclinaisons rouge, bleue et violette — un
+    # effet rongé visible sans zoom.
+    #
+    # ⭐ Un détail est une structure claire LOCALEMENT, pas globalement. Le
+    # chapeau haut-de-forme morphologique mesure exactement ça : l'écart d'un
+    # pixel à l'ouverture de son voisinage. Aucun seuil global, et il suit le
+    # tissu quelle que soit sa luminosité. Mesuré ici : 2,2 % de la surface au
+    # lieu de 12 %, en 48 pièces — cordons, passants, œillets.
     details = ndimage.binary_opening(
-        masque_vet & (lum > np.percentile(lum[masque_vet], 88)), np.ones((3, 3)))
+        (ndimage.white_tophat(lum * masque_vet, size=15) > 18) & masque_vet,
+        np.ones((3, 3)))
     tissu = masque_vet & ~details
 
     out = a.copy()
@@ -680,6 +699,12 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
                          np.asarray(orig.convert('RGBA')).astype(float),
                          np.asarray(habille).astype(float),
                          autoriser_repli=autoriser_repli)
+    # 🔴 LE MASQUE SÉMANTIQUE NE CONNAÎT PAS LA ZONE. SAM segmente « le
+    # vêtement du bas » et y inclut ce qui lui ressemble : mesuré, 9 954 px de
+    # PIEDS, qui se retrouvaient teints en rouge, bleu et violet. La zone, elle,
+    # est déjà bornée par construction — on l'impose au masque, avec la marge
+    # que le vêtement a le droit de prendre au-delà du corps.
+    mv = mv & (np.asarray(mq.filter(ImageFilter.GaussianBlur(4))) > 40)
     Image.fromarray((mv * 255).astype(np.uint8)).save(f'{SORTIE}/{nom}.masque.png')
 
     # puis la teinture, puis seulement l'ombre

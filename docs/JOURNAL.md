@@ -432,3 +432,71 @@ du légitime.
 > pas une métrique du tout : c'était de savoir que le corps de base est **fixe**,
 > donc que son masque de membres est un fichier qu'on complète une fois, pas une
 > règle qu'on généralise.
+
+---
+
+# 30 août 2026 (suite) — la teinture, et un compteur qui mentait
+
+## Le conseil : architecture signée, ship refusé
+
+Verdict unanime des trois membres qui ont répondu : **cause racine confirmée,
+architecture validée** ; **ship utilisateur refusé** sur un seul chiffre — une
+tache résiduelle de 543 px, « ≈ disque Ø 26 px, visible à 1× sur un téléphone ».
+
+Deux apports repris tels quels :
+- les seuils d'aire doivent être **normalisés en (Hp/1024)²**, sinon ils sont
+  faux dès qu'on change de résolution ;
+- le 4/255 est **incompatible avec un paste dur** — vérifié, et c'était mon
+  instrument : je comparais l'original composé sur blanc au RGB brut. Composés
+  du même côté : **0/255 exact**.
+
+Un membre signalait un « pont » à l'entrejambe comme défaut nouveau. Mesuré sur
+les trois versions : 47 %, 50 %, 46 % d'occupation de l'espace inter-jambes.
+Réel, mais **pas une régression** — présent avant le correctif.
+
+## 🔴 Le compteur d'éclats mesurait des bords de vêtement
+
+Trois définitions du même défaut, sur la même image :
+
+| définition | résultat |
+|---|---|
+| hors silhouette, désaturé, < 90 px d'un membre | 1 602 px |
+| la même, portée normalisée en (Hp/1024) | 4 237 px |
+| hors silhouette et hors du masque sémantique SAM | 14 919 px |
+
+Facteur 9. Surligné en rouge sur l'image, le compteur cerclait **le bord
+latéral du pantalon, un passant, l'entrejambe et un rabat de poche** : des bords
+de tissu, éclairés donc désaturés. Autour de la main — le seul endroit qui
+comptait — il n'y avait plus rien.
+
+> ⭐ Troisième fois cette nuit que deux populations refusent de se séparer
+> (distance au membre, fraction de pourtour, saturation). **Quand elles ne se
+> séparent pas, il n'y a pas de seuil à trouver.** Le compteur est retiré du
+> contrat de livraison : un garde-fou qui rend trois valeurs incompatibles ne
+> protège rien, il fabrique de la confiance.
+
+## La teinture : deux défauts, tous deux des seuils supposés
+
+Première exécution complète de la passe de teinture. Résultat visible sans
+zoom : plaques vert clair sur les cuisses et les mollets des déclinaisons
+rouge, bleue et violette — un effet rongé — et **le pied droit teint**.
+
+**1. Le 88ᵉ centile tombait dans le tissu.** `teindre` excluait les « détails
+clairs » par `lum > percentile(lum[masque], 88)`, ce qui exclut 12 % des pixels
+par construction. Le raisonnement supposait deux populations. Histogramme
+mesuré :
+
+```
+      un seul pic, massif, à 201-212/255
+      médiane 191   ·   88ᵉ centile 208   ·   45 988 px exclus
+```
+
+Unimodal. Le centile tombait **en plein dans le pic du tissu**.
+
+Le chapeau haut-de-forme morphologique mesure ce qu'on voulait vraiment : un
+détail est clair **localement**, pas globalement. Aucun seuil global, et il suit
+le tissu quelle que soit sa luminosité — 2,2 % de la surface au lieu de 12 %,
+en 48 pièces (cordons, passants, œillets).
+
+**2. SAM ne connaît pas la zone.** Le masque sémantique incluait 9 954 px de
+pieds. La zone est bornée par construction : on la lui impose.

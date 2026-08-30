@@ -223,6 +223,47 @@ def verifier(chemin_base, chemin_produit, zone, masque_vetement=None,
             defauts += 1
             rapport.append('🔴 le bas ne descend pas aux chevilles')
 
+    # ── 3bis. LE CONTRAT DE LIVRAISON ─────────────────────────────────────
+    # 🔴 « ASSEZ PROPRE » N'EST PAS UN CRITÈRE. Le conseil d'IA, 30 août, a
+    # validé l'architecture à l'unanimité et refusé le ship à l'unanimité —
+    # sur un seul chiffre : une tache de 543 px, « ≈ disque Ø 26 px, visible à
+    # 1× sur un téléphone 6 pouces ». Les seuils ci-dessous sont les leurs, pas
+    # les miens. Ils remplacent mon jugement par un contrat.
+    #
+    # ⭐ ET ILS SE NORMALISENT. Une aire en pixels absolus ne veut rien dire
+    # d'une résolution à l'autre : le même défaut perceptuel vaut 80 px à
+    # 1024 de haut et 578 px à 2752. Les seuils sont donc exprimés pour un
+    # personnage de 1024 px et mis à l'échelle en (Hp/1024)².
+    # 🔴 LE COMPTEUR D'ÉCLATS PARASITES A ÉTÉ RETIRÉ DE CE CONTRAT.
+    # Trois définitions successives du même défaut, sur la MÊME image :
+    #
+    #     « hors silhouette, désaturé, à moins de 90 px d'un membre »   1 602 px
+    #     la même, portée normalisée en (Hp/1024)                       4 237 px
+    #     « hors silhouette et hors du masque sémantique de SAM »       14 919 px
+    #
+    # Facteur 9 entre le plus bas et le plus haut. Surligné en rouge sur
+    # l'image, le compteur cerclait le bord latéral du pantalon, un passant,
+    # l'entrejambe et un rabat de poche : des BORDS DE VÊTEMENT, éclairés donc
+    # désaturés, que le critère de saturation ne distingue pas d'un parasite.
+    # Autour de la main — le seul endroit qui comptait — il n'y avait plus rien.
+    #
+    # ⭐ Comme pour la distance au membre et la fraction de pourtour : les deux
+    # populations ne se séparent pas, donc IL N'Y A PAS DE SEUIL À TROUVER.
+    # Un garde-fou qui rend trois valeurs incompatibles pour un même défaut ne
+    # protège rien — il fabrique de la confiance. On ne garde que ce qui mesure
+    # une invariance vérifiable.
+    ech = (Hp / 1024.0) ** 2
+    if _os.path.exists(MASQUE_MEMBRES):
+        mem = (np.asarray(Image.open(MASQUE_MEMBRES).convert('L')) > 127) & corps
+        sur_mem = int((vet & mem).sum())
+        rapport.append(f'── contrat de livraison (seuil du conseil, ×{ech:.1f} '
+                       f'pour un personnage de {Hp} px) ──')
+        ok = sur_mem < 50 * ech
+        rapport.append(f'   {"✓" if ok else "🔴"} {"vêtement SUR les membres":28} '
+                       f'{sur_mem:8,}  seuil {50 * ech:8,.0f}')
+        if not ok:
+            defauts += 1
+
     # ── 4. SILHOUETTE ─────────────────────────────────────────────────────
     sil = (prod[:, :, 3] > 16).sum() / max(1, (base[:, :, 3] > 16).sum()) * 100 - 100
     rapport.append(f'silhouette : {sil:+.1f} %')
