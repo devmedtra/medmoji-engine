@@ -1084,3 +1084,63 @@ orthographique de face, et cette texture entre dans le rig 2D **déjà construit
 - GarmentCode (MIT) — https://github.com/maria-korosteleva/GarmentCode
 - GarmentCodeData, ECCV 2024 — https://igl.ethz.ch/projects/GarmentCodeData/
 - Bitmoji, refonte 3D — https://developers.snap.com/lens-studio/features/bitmoji-avatar/bitmoji-3d
+
+---
+
+# 30 août 2026 — le corps de base EST devenu un modèle 3D
+
+Med, en une phrase : « pourquoi pas créer un corps de base avec Higgsfield, le
+convertir en modèle et là travailler dessus au lieu direct de l'image ».
+
+🔴 **J'avais l'outil sous la main et je ne l'ai pas envisagé.** TRELLIS.2 est
+installé sur la tour depuis le 29 août, licence MIT, prouvé. Je venais d'écrire
+« le corps de base vient de Higgsfield — c'est une image, pas un modèle 3D »
+comme si c'était une fatalité, alors que la conversion prend 48 secondes.
+
+## Le résultat, mesuré
+
+```
+[trellis] maillage genere en 21 s · 1 228 359 sommets, 2 468 578 faces
+[trellis] EXPORTE corps-base.glb — 31 386 Ko · export 27 s
+[trellis] TOTAL generation 48 s (hors chargement du modele)
+```
+
+Tour 360° en 8 vues : face, trois-quarts, profils, dos — **tous cohérents**.
+Le sous-vêtement est modélisé en volume distinct. Pas de torse plat, le défaut
+qui avait piégé le 16 août.
+
+## Les proportions concordent là où le pantalon se pose
+
+Largeur rapportée à la hauteur, corps 2D contre rendu du corps 3D :
+
+| | 2D | 3D | écart |
+|---|---|---|---|
+| épaules | 0,188 | 0,236 | 25,5 % 🔴 |
+| taille | 0,355 | 0,369 | **3,9 %** |
+| fourche | 0,189 | 0,192 | **1,9 %** |
+| genoux | 0,165 | 0,173 | **4,9 %** |
+| chevilles | 0,159 | 0,172 | **7,9 %** |
+
+Toute la zone du bas concorde à moins de 8 %. L'écart aux épaules sort de la
+zone qui nous intéresse et vient du cadrage de la caméra.
+
+## Ce que ça débloque
+
+Le raisonnement de tout à l'heure — « garder le corps 2D, n'utiliser la 3D que
+pour la texture » — était un contournement d'un obstacle **qui n'existait pas**.
+Le corps est un modèle. On peut donc :
+
+- l'habiller en 3D (GarmentCode MIT, simulation Blender, assets CC0) ;
+- rendre le vêtement seul en caméra orthographique de face ;
+- injecter cette texture dans le rig 2D **déjà construit** — squelette, maillage
+  contour, weld, couleur Lab.
+
+Un vêtement modélisé n'a pas de couture inventée, pas de rabat surgi d'un prior,
+pas d'aileron dépendant de la graine. Les cinq défauts poursuivis pendant 24 h
+disparaissent **par construction**, parce qu'aucun d'eux n'est un défaut de
+vêtement : ce sont des défauts d'inpainting.
+
+> ⭐ La leçon, et elle est dure : j'ai passé 24 h à corriger des symptômes en
+> mesurant chacun proprement, sans jamais remettre en cause l'approche. Chaque
+> mesure était juste. La question « est-ce le bon outil » ne s'est pas posée
+> avant que Med la pose.
