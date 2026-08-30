@@ -121,7 +121,7 @@ ZONES = {
     'bas': (0.55, 0.93),
     'pieds': (0.88, 1.00),
 }
-GRAINE = 20260830
+GRAINE = int(os.environ.get('MEDMOJI_GRAINE', '20260830'))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -246,9 +246,23 @@ def masque_zone(im, zone='haut'):
     bande = np.zeros(corps.shape, bool)
     bande[haut:bas] = True
     zone_corps = corps & bande
-    m = ndimage.binary_dilation(zone_corps,
-                                ndimage.generate_binary_structure(2, 2),
-                                iterations=rayon) & bande
+    # 🔴 UNE DILATATION ITÉRÉE N'EST PAS UN DISQUE. `binary_dilation` en
+    # 8-connexité, répétée 25 fois, produit un OCTOGONE : le contour du masque
+    # sort en bosses là où les diagonales se rencontrent. Med a entouré ces
+    # bosses sur le rendu — les « ailerons » sur les côtés des jambes.
+    #
+    # Mesure de l'écart au contour lissé, entre 70 et 92 % de hauteur :
+    #
+    #     le CORPS     max  6,0 px, ZÉRO bosse de plus de 6 px  ← la référence
+    #     le MASQUE    max 16,9 px, 28 bosses                   ← ce qui est permis
+    #     le vêtement  max 17,2 px, 47 à 96 bosses              ← ce que ça donne
+    #
+    # Le modèle ne les invente pas : il remplit le masque, bosses comprises.
+    #
+    # ⭐ La transformée de distance donne le VRAI disque : un pixel est dans le
+    # masque s'il est à moins de R du corps, au sens euclidien. Aucune direction
+    # privilégiée, donc aucune bosse géométrique.
+    m = (ndimage.distance_transform_edt(~zone_corps) <= rayon) & bande
 
     # ── 🔴 LA TOPOLOGIE DU MASQUE NE DOIT PAS OSCILLER ────────────────────
     # Med, 30 août 2026, a entouré trois fois la même couture horizontale en

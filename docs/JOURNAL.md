@@ -1007,3 +1007,80 @@ de 54 à 92 % :
 **De 11 lignes à 2, somme divisée par 6.** La résolution de génération, elle,
 ne déplace pas la couture (elle reste à 71-72 % en passant de 1,10 à 2,09 Mpx) :
 ce n'est donc pas un artefact d'échelle, c'est bien la fourche.
+
+---
+
+# 30 août 2026 — 24 h sur un pantalon : le constat, et ce que fait l'industrie
+
+Med : « fouille toutes les données possibles pour ce qu'on veut faire, on a passé
+plus de 24 h sur ça ». Il a raison, et le symptôme est net : **chaque correction
+déplace le défaut au lieu de le supprimer.**
+
+| ce qui a été corrigé | ce qui est apparu ensuite |
+|---|---|
+| la déchirure aux cuisses | une couture à la fourche |
+| le sous-vêtement dans l'init | la couture persiste |
+| l'oscillation topologique du masque | des rabats sous le genou |
+| les poches en prompt négatif | les rabats descendent plus bas |
+| quatre graines différentes | des ailerons ailleurs à chaque fois |
+
+> 🔴 **SDXL ne sait pas ce qu'est un pantalon.** Il remplit un masque avec ce que
+> son prior lui suggère, et ce prior contient des poches, des coutures et des
+> rabats. On peut le contraindre, on ne peut pas lui faire comprendre la pièce.
+> Mesuré : aucune démarcation n'est commune aux quatre graines — les défauts sont
+> **inventés au hasard**, pas déterminés par la géométrie.
+
+## Ce que fait l'acteur de référence
+
+**Bitmoji est passé du 2D au 3D en 2023** — et la raison publiée est exactement
+notre problème : ce passage « leur a permis de lancer de nouveaux types de corps
+et de livrer plus vite les demandes de mode, du jean taille basse au sari ».
+Leurs vêtements sont des assets **modélisés**, pas générés ; l'avatar est un
+état JSON de pointeurs vers des assets vectoriels sur CDN.
+
+L'approche qu'on suit depuis 24 h est celle que l'industrie a abandonnée.
+
+## GarmentCode — MIT, et c'est littéralement la spec de Med
+
+`github.com/maria-korosteleva/GarmentCode`, **licence MIT**, cloné et vérifié :
+
+```
+assets/garment_programs/pants.py      skirt_paneled.py   sleeves.py
+                        bodice.py     collars.py         bands.py
+```
+
+Les paramètres du pantalon, tels quels dans `default.yaml` :
+
+```yaml
+pants:
+  length:  0.3      width: 1.0      flare: 1.0      rise: 1.0
+  cuff:    type · top_ruffle · cuff_len · skirt_fraction · skirt_flare
+```
+
+C'est mot pour mot ce que Med demandait le 30 août : « un seul pantalon maître
+avec une propriété permettant de modifier sa couleur instantanément », un
+vêtement qui « s'adapte automatiquement à différentes morphologies, couleurs,
+tailles et poses ». Un pantalon devient un **programme**, pas une image — et il
+est ajusté aux mesures du corps, pas inpeint dessus.
+
+Le dataset compagnon, **GarmentCodeData** (ECCV 2024), contient 115 000 vêtements
+3D sur mesure avec leurs patrons, catégories tops / chemises / robes /
+combinaisons / jupes / **pantalons**.
+
+## Ce qui bloque, et la voie qui ne détruit rien
+
+Le corps de base actuel vient de Higgsfield — c'est une **image**, pas un modèle
+3D. Mais la tour en a plusieurs : `medz-v7.glb`, `snow_v02.blend`, et huit
+autres dans `/home/mederic/avatar/`.
+
+⭐ La voie la moins destructive : garder le corps 2D existant et **n'utiliser la
+3D que pour produire la TEXTURE du vêtement**. On aligne un corps 3D sur les
+proportions déjà mesurées (`squelette.json` : hanches 72,1 %, genoux 80,3 %,
+chevilles 91,7 %), on l'habille, on rend le vêtement seul en caméra
+orthographique de face, et cette texture entre dans le rig 2D **déjà construit**
+— squelette, maillage contour, weld, couleur Lab. Rien de ce travail n'est perdu.
+
+**Sources**
+- GarmentCode (MIT) — https://github.com/maria-korosteleva/GarmentCode
+- GarmentCodeData, ECCV 2024 — https://igl.ethz.ch/projects/GarmentCodeData/
+- Bitmoji, refonte 3D — https://developers.snap.com/lens-studio/features/bitmoji-avatar/bitmoji-3d
