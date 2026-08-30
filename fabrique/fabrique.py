@@ -96,7 +96,7 @@ MODELE_VISAGE = f'{SORTIE}/face_landmarker.task'
 MODELE_SDXL = 'diffusers/stable-diffusion-xl-1.0-inpainting-0.1'
 # Le masque des bras, calculé une fois par géométrie pure — le corps de base
 # ne bouge jamais, donc c'est un fichier et non un calcul.
-MASQUE_BRAS = f'{SORTIE}/masque-bras-fixe.png'
+MASQUE_BRAS = f'{SORTIE}/masque-membres.png'
 # Portée de l'exclusion douce autour des bras et des mains. Se règle par
 # mesure : le témoin compte le pourtour des membres cerné par du tissu.
 # Rayon d'exclusion autour des membres, en pixels. Calculé sur la distribution

@@ -49,7 +49,7 @@ INTERDITS = {
 
 # Les membres se prennent dans leur masque GEOMETRIQUE exact, jamais dans une
 # tranche de hauteur. Calcule une fois, le corps de base ne bougeant jamais.
-MASQUE_MEMBRES = '/root/medtra-avatar/createur/masque-bras-fixe.png'
+MASQUE_MEMBRES = '/root/medtra-avatar/createur/masque-membres.png'
 
 
 def verifier(chemin_base, chemin_produit, zone, masque_vetement=None,
@@ -165,6 +165,37 @@ def verifier(chemin_base, chemin_produit, zone, masque_vetement=None,
                 a, b = (nues[0] - h0) / Hp * 100, (nues[-1] - h0) / Hp * 100
                 rapport.append(f'🔴 le vêtement est DÉCHIRÉ : bande de peau nue '
                                f'de {a:.1f} % à {b:.1f} % ({len(nues)} lignes)')
+
+    # ── 2quater. LE VÊTEMENT DOIT ÊTRE FERMÉ ──────────────────────────────
+    # 🔴 TOUTE L'INSTRUMENTATION ÉTAIT ORIENTÉE EN LIGNES. Le conseil d'IA,
+    # 30 août : les deux membres consultés ont donné des verdicts opposés sur
+    # « le pantalon est-il continu ? ». L'un voyait un vêtement d'un seul
+    # tenant, l'autre une bande verticale claire de la ceinture au bas-ventre —
+    # une braguette ouverte. Aucun témoin ne pouvait les départager : un défaut
+    # VERTICAL est invisible à un profil calculé ligne par ligne.
+    #
+    # ⭐ Le témoin symétrique, en colonnes, sur la tranche de la taille.
+    if zone == 'bas':
+        d1, f1 = 0.56, 0.70
+        y0, y1 = h0 + int(Hp * d1), h0 + int(Hp * f1)
+        colv = (vet & corps)[y0:y1].sum(0)
+        colc = corps[y0:y1].sum(0)
+        xs = np.where(colc > (y1 - y0) * 0.5)[0]     # colonnes vraiment dans le corps
+        if len(xs) > 20:
+            p = colv[xs] / colc[xs] * 100
+            assert p.max() <= 100.001, f'instrument cassé : colonne {p.max():.0f} %'
+            creuses = int((p < 50).sum())
+            rapport.append(f'taille : {len(xs)} colonnes, médiane '
+                           f'{np.median(p):.0f} %, {creuses} sous 50 %')
+            # une ouverture MÉDIANE (braguette) plutôt qu'un bord : au centre
+            centre = xs[(xs > np.percentile(xs, 35)) & (xs < np.percentile(xs, 65))]
+            if len(centre):
+                pc = colv[centre] / colc[centre] * 100
+                if (pc < 50).sum() > len(centre) * 0.15:
+                    defauts += 1
+                    rapport.append(f'🔴 le vêtement est OUVERT au centre : '
+                                   f'{int((pc < 50).sum())}/{len(centre)} colonnes '
+                                   f'médianes sous 50 % (braguette / entrebâillement)')
 
     # ── 3. COUVERTURE ATTENDUE ────────────────────────────────────────────
     # Un pantalon qui s'arrête à mi-mollet est un défaut, pas un style.

@@ -360,3 +360,75 @@ assert max(v for _, v in prof) <= 100.001, 'instrument cassé'
 
 Il attrape rétroactivement les trois essais ratés : 50, 68 et 277 lignes sous
 50 % de couverture.
+
+---
+
+# 30 août 2026 (suite) — le pouce
+
+## Ce que le conseil a tranché, et où il s'est trompé
+
+Verdict soumis avec les mesures. Deux membres sur quatre ont répondu.
+
+**Accord** : la déchirure horizontale a disparu, les mains sont libres, le
+disque isotrope est refusé — il encode une contrainte d'occlusion fausse.
+
+**Désaccord frontal** sur « le pantalon est-il un seul vêtement continu ? » :
+l'un le voyait continu, l'autre décrivait une **bande verticale claire** de la
+ceinture au bas-ventre — une braguette ouverte.
+
+> ⭐ Aucun témoin ne pouvait les départager : **toute l'instrumentation était
+> orientée en lignes** (`[y]`). Un défaut vertical est invisible à un profil
+> ligne par ligne. Le témoin symétrique, en colonnes, sur la tranche de la
+> taille, tranche : les colonnes creuses sont **latérales**, jamais médianes.
+> Pas d'ouverture centrale — ce qui a été pris pour un slip est le rabat de
+> braguette fermé.
+
+**Les deux membres ont proposé, indépendamment, le même correctif pour les
+éclats gris : ne garder que les composantes de vêtement ancrées au corps.**
+Mesuré avant d'être écrit : **30 composantes, 30 ancrées, zéro orpheline.** Le
+correctif ne tuait rien. Les éclats ne flottaient pas — ils étaient soudés.
+
+## La vraie cause, trouvée en regardant
+
+Zoom ×6 sur le plus gros éclat : ce n'est pas du tissu détaché, c'est une
+**excroissance qui pousse du bout du pouce**, et le pouce lui-même est décoloré.
+Superposition du masque `membres` sur la main : il couvre les quatre doigts et
+la paume, **pas le pouce**.
+
+Le masque avait été calculé par pure géométrie — segments latéraux quand une
+ligne se divise en trois. Le pouce, accolé à la paume du côté interne, n'en
+faisait pas partie. Il n'était donc jamais reposé après génération : SDXL le
+repeignait, et faisait pousser un lambeau à son extrémité.
+
+Les deux pouces s'identifient sans ambiguïté sur un corps de base qui ne bouge
+jamais : composantes de `corps & ~membres`, 500 à 20 000 px, entre 58 et 72 %
+de la hauteur, adjacentes au masque. **Exactement deux, symétriques, à 64,9 %
+toutes les deux** — 2 497 px à droite, 2 288 px à gauche.
+
+## Bilan des trois passes
+
+| critère | isotrope | anatomique | + pouce |
+|---|---|---|---|
+| bande de peau nue | 50 lignes | 7 | **0** |
+| corps hors vêtement modifié | — | 17 764 px | **8 161 px** |
+| mains/bras modifiés | — | 15 158 px, max 65/255 | **5 437 px, max 52/255** |
+| éclats gris près des mains | 4 839 px, 10 taches | 3 865 px, 12 | **1 602 px, 6** |
+| couverture médiane à la taille | 84 % | 97 % | **100 %** |
+| chevilles couvertes | — | — | **100 %** |
+
+## 🔴 Un critère de pourtour ne sépare pas ce qu'un regard sépare
+
+Avant de compléter le masque, j'ai cherché une règle générique : « la fraction
+du pourtour d'une composante qui touche le masque des membres ». Mesuré : le
+pouce **12,6 %**, le tronc **5,4 %**, les pieds **30 %** et **56 %**. Les
+populations ne se séparent pas.
+
+De même, la distance au membre ne sépare pas le tissu parasite du tissu
+légitime dans le fond : à R = 100 px, on tue 51 % du parasite en mangeant 19 %
+du légitime.
+
+> ⭐ Quand deux populations ne se séparent pas, **il n'y a pas de seuil à
+> trouver** — il y a un autre critère à chercher. Ici, le bon critère n'était
+> pas une métrique du tout : c'était de savoir que le corps de base est **fixe**,
+> donc que son masque de membres est un fichier qu'on complète une fois, pas une
+> règle qu'on généralise.
