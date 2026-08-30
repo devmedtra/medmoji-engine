@@ -600,6 +600,33 @@ def masque_vetement(chemin_habille, chemin_masque_semantique=None,
 
 GAIN, OFFSET = 0.85, 0.06
 
+# ── Lab : le seul espace où la luminance se sépare de la couleur ───────────
+# Écrits ici plutôt qu'importés : la Fabrique ne dépend que de numpy, PIL et
+# scipy, et ces deux conversions tiennent en dix lignes chacune.
+_M_RVB_XYZ = np.array([[.4124, .3576, .1805],
+                       [.2126, .7152, .0722],
+                       [.0193, .1192, .9505]])
+_BLANC = np.array([.95047, 1.0, 1.08883])
+
+
+def _vers_lab(rvb):
+    r = rvb / 255.0
+    r = np.where(r > .04045, ((r + .055) / 1.055) ** 2.4, r / 12.92)
+    xyz = (r @ _M_RVB_XYZ.T) / _BLANC
+    f = np.where(xyz > .008856, np.cbrt(np.maximum(xyz, 0)), 7.787 * xyz + 16 / 116)
+    return np.stack([116 * f[..., 1] - 16,
+                     500 * (f[..., 0] - f[..., 1]),
+                     200 * (f[..., 1] - f[..., 2])], -1)
+
+
+def _vers_rvb(lab):
+    fy = (lab[..., 0] + 16) / 116
+    f = np.stack([fy + lab[..., 1] / 500, fy, fy - lab[..., 2] / 200], -1)
+    xyz = np.where(f > .206893, f ** 3, (f - 16 / 116) / 7.787) * _BLANC
+    r = xyz @ np.linalg.inv(_M_RVB_XYZ).T
+    r = np.where(r > .0031308, 1.055 * np.maximum(r, 0) ** (1 / 2.4) - .055, 12.92 * r)
+    return np.clip(r, 0, 1) * 255
+
 def teindre(habille, masque_vet, couleur):
     """Recolore le tissu en préservant plis, coutures et détails clairs.
 
@@ -677,10 +704,33 @@ def teindre(habille, masque_vet, couleur):
                 details[p] = False          # même matière → c'est du tissu
     tissu = masque_vet & ~details
 
+    # 🔴 LE GAIN MULTIPLICATIF ÉCRASAIT LE RELIEF. Première version :
+    #     clip((L * 0,85 + 0,06) * couleur * 1,9, 0, 255)
+    # Sur un rouge (230, 57, 70), le canal R vaut (L·0,85 + 0,06) × 437 : tout
+    # pixel de luminance supérieure à ~0,45 sature à 255. Le `clip` mange donc
+    # toutes les hautes lumières, et avec elles les plis.
+    #
+    # Critère du conseil d'IA, 30 août : `std(L)_post / std(L)_pre ∈ [0,85 ;
+    # 1,15]` sur l'intérieur du vêtement. Mesuré sur cette version :
+    #
+    #     olive 1,00 (elle ne teignait rien)   rouge 0,30   bleu 0,44   violet 0,61
+    #
+    # 70 % de la variation de luminance perdue en rouge. Deux membres du conseil
+    # jugeaient l'aplatissement « acceptable » à l'œil ; la mesure dit non.
+    #
+    # ⭐ LA LUMINANCE ET LA CHROMIE SE SÉPARENT — c'est à ça que sert Lab. On
+    # garde le L du tissu, recentré sur celui de la couleur demandée, et on
+    # impose (a, b) de la cible. La dispersion de L est conservée à
+    # l'identique : le critère passe PAR CONSTRUCTION, pas par réglage.
+    lab = _vers_lab(a[:, :, :3])
+    cible = _vers_lab(np.array(couleur, float).reshape(1, 1, 3))[0, 0]
+    Lt = lab[:, :, 0][tissu]
+    neuf = lab.copy()
+    neuf[:, :, 0][tissu] = np.clip(cible[0] + (Lt - Lt.mean()), 0, 100)
+    neuf[:, :, 1][tissu] = cible[1]
+    neuf[:, :, 2][tissu] = cible[2]
     out = a.copy()
-    L = lum[tissu] / 255.0
-    out[:, :, :3][tissu] = np.clip(
-        (L[:, None] * GAIN + OFFSET) * np.array(couleur, float)[None, :] * 1.9, 0, 255)
+    out[:, :, :3][tissu] = _vers_rvb(neuf)[tissu]
     return Image.fromarray(out.round().astype(np.uint8)), tissu, details
 
 
@@ -757,13 +807,52 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
     # intersection — le seuil, borné au voisinage immédiat de SAM — récupère le
     # bord sans jamais inventer : un pixel n'est repris que s'il a changé ET
     # qu'il touche ce que SAM a reconnu comme du tissu.
+    # ⚠️ `habille.convert('RGB')` rend le transparent NOIR, alors que `orig` est
+    # composé sur BLANC : sur la frange du contour, l'écart vaut 176/255 sans
+    # qu'un seul pixel ait bougé. Les deux images se composent du même côté.
     ecart = np.abs(np.asarray(orig.convert('RGB')).astype(float)
-                   - np.asarray(habille.convert('RGB')).astype(float)).max(2)
+                   - np.asarray(sur_blanc(habille)).astype(float)).max(2)
     change = (ecart > 18) & (np.asarray(habille)[:, :, 3] > 200)
-    borde = ndimage.binary_dilation(mv, np.ones((17, 17))) & change
+
+    # 🔴 PAS UN RAYON PLUS GRAND — UNE RECONSTRUCTION GÉODÉSIQUE.
+    # Une dilatation isotrope récupérait bien le bord ici (résidu 19 427 →
+    # 845 px à R=20), mais le conseil d'IA l'a refusée pour une raison qui
+    # tient : un rayon euclidien fixe finit par absorber la main, la peau ou le
+    # fond dès que la pose change. C'est une dette à l'échelle, pas une
+    # solution. Diagnostic du même conseil, vérifié sur les six résidus :
+    # SAM rate les PAROIS LATÉRALES des cargos — géométrie mince, normale
+    # rasante, hors du blob frontal. Mes six fragments étaient latéraux, 6 sur 6.
+    #
+    # ⭐ On croît donc DANS LA MATIÈRE, pas dans le vide : depuis ce que SAM a
+    # reconnu, de proche en proche, en ne traversant que des pixels qui
+    # ressemblent au tissu ET qui ont changé depuis le corps nu. Trente-deux pas
+    # de couloir 8-connexe ne font pas un halo de 32 px : la peau intacte n'est
+    # jamais franchie, faute de couloir.
+    #
+    # Le seuil se LIT sur les histogrammes de ΔE76 au tissu de référence, il ne
+    # se choisit pas :
+    #     tissu (SAM)      P50  6,1   P90 17,6   P95 24,9
+    #     bord à récupérer P50 17,6   P90 27,7
+    #     ceinture         P50 28,7        peau P50 27,9        fond 36,2
+    # ΔE < 25 est le P95 de la dispersion propre du tissu : il englobe le tissu
+    # et laisse dehors la ceinture, la peau et le fond.
+    lab_h = _vers_lab(np.asarray(sur_blanc(habille)).astype(float))
+    ref = np.median(lab_h[mv], axis=0)
+    couloir = (np.sqrt(((lab_h - ref) ** 2).sum(2)) < 25) & change
     avant = int(mv.sum())
-    mv = mv | borde
-    print(f'  bord du vêtement récupéré : +{int(mv.sum()) - avant:,} px')
+    for _ in range(32):
+        suivant = ndimage.binary_dilation(mv, np.ones((3, 3))) & (couloir | mv)
+        if int(suivant.sum()) == int(mv.sum()):
+            break
+        mv = suivant
+    # Garde-fou du conseil : si la croissance a mordu la peau, on n'écrit pas.
+    peau_nue = (np.asarray(src)[:, :, 3] > 250) & ~change
+    morsure = int((mv & peau_nue).sum())
+    print(f'  paroi latérale récupérée : +{int(mv.sum()) - avant:,} px '
+          f'(géodésique, ΔE < 25) · peau mordue {morsure} px'
+          f'{"" if morsure < 200 else "  🔴 ABANDON"}')
+    if morsure >= 200:
+        mv = mv & ~peau_nue
 
     mv = mv & (np.asarray(mq.filter(ImageFilter.GaussianBlur(4))) > 40)
     Image.fromarray((mv * 255).astype(np.uint8)).save(f'{SORTIE}/{nom}.masque.png')
@@ -775,7 +864,14 @@ def fabriquer(description, nom, zone='haut', couleur=(74, 78, 84),
         print(f'  teinte {nom_t} : tissu {tissu.sum():,} px, '
               f'détails préservés {details.sum():,} px')
 
-    ombre_contact(habille, mv).save(f'{SORTIE}/{nom}.final.png')
+    # 🔴 LE MASTER N'ÉTAIT PAS TEINT. Mesuré : ΔE76(habillé → final) = 0,0
+    # EXACTEMENT — le fichier `.final.png` n'était que l'habillé plus l'ombre.
+    # Un membre du conseil l'avait soupçonné en regardant les images (« je ne
+    # peux pas vérifier qu'olive a réellement teint ») ; les deux autres s'en
+    # servaient comme référence de relief, donc validaient un no-op.
+    # Le master se teint avec sa propre couleur, comme n'importe quelle teinte.
+    master, _, _ = teindre(habille, mv, couleur)
+    ombre_contact(master, mv).save(f'{SORTIE}/{nom}.final.png')
 
     json.dump({'id': nom, 'zone': zone, 'couleur_master': list(couleur),
                'description': description, 'graine': GRAINE,

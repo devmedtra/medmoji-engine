@@ -526,3 +526,82 @@ Plus deux défauts de masque :
 | détails soustraits à la teinture | 36 093 px | **340 px** |
 | vêtement non teint | 19 427 px (5,1 %) | **5 671 px (1,5 %)** |
 | pieds teints | 9 954 px | **0** |
+
+---
+
+# 30 août 2026 — deux défauts que l'œil validait et que la mesure a tués
+
+Le conseil a rendu un **NO-SHIP unanime** sur les six résidus verts. Deux de ses
+membres jugeaient par ailleurs l'aplatissement des couleurs « acceptable » et se
+servaient du master olive comme référence de relief. Un seul, Grok, a mis en
+doute ces deux points sans pouvoir les vérifier sur des JPEG. Les deux mesures
+lui donnent raison.
+
+## 1. Le master olive ne teignait RIEN
+
+    ΔE76(habillé → final) = 0,0   EXACTEMENT
+
+`.final.png` n'était que l'habillé plus l'ombre de contact : la couleur master
+n'était jamais appliquée. Deux membres du conseil s'en servaient comme référence
+de relief — ils validaient un no-op. Le master se teint désormais comme
+n'importe quelle teinte.
+
+> ⭐ Règle du conseil, retenue : **un master de ship est la teinte la plus
+> LOIN du source**, jamais une voisine. Une teinte proche ne peut structurellement
+> pas révéler des résidus de la couleur d'origine.
+
+## 2. Le gain multiplicatif écrasait le relief
+
+    clip((L · 0,85 + 0,06) · couleur · 1,9, 0, 255)
+
+Sur un rouge (230, 57, 70), le canal R vaut `(L·0,85 + 0,06) × 437` : **tout
+pixel de luminance supérieure à ~0,45 sature à 255**. Le `clip` mangeait les
+hautes lumières, et les plis avec.
+
+Critère du conseil — `std(L)_post / std(L)_pre ∈ [0,85 ; 1,15]` sur l'intérieur :
+
+| teinte | avant | après |
+|---|---|---|
+| olive | 1,00 *(ne teignait rien)* | **0,99** |
+| rouge | **0,30** | **0,97** |
+| bleu | **0,44** | **0,96** |
+| violet | **0,61** | **0,99** |
+
+70 % de la variation de luminance perdue en rouge, jugée « un peu plus plate,
+acceptable » par deux membres sur trois.
+
+**La luminance et la chromie se séparent — c'est à ça que sert Lab.** On garde
+le L du tissu, recentré sur celui de la couleur demandée, et on impose (a, b) de
+la cible. La dispersion de L est conservée à l'identique : le critère passe **par
+construction**, pas par réglage.
+
+## 3. La récupération du bord : géodésique, pas isotrope
+
+La dilatation isotrope marchait ici — résidu 19 427 → 845 px à R = 20 px, la
+peau ajoutée saturant à 1 867 px dès R = 12. Le conseil l'a refusée pour une
+raison qui tient : **un rayon euclidien fixe finira par absorber la main quand
+la pose changera.** Dette à l'échelle, pas solution.
+
+Son diagnostic, vérifié : **SAM rate les parois latérales des cargos** —
+géométrie mince, normale rasante, hors du blob frontal. Les six résidus étaient
+latéraux, **six sur six**.
+
+On croît donc dans la matière : depuis ce que SAM a reconnu, de proche en
+proche, en ne traversant que des pixels qui ressemblent au tissu **et** qui ont
+changé depuis le corps nu. Le seuil se LIT sur les histogrammes de ΔE76 :
+
+| population | P50 | P90 | P95 |
+|---|---|---|---|
+| tissu (SAM) | 6,1 | 17,6 | **24,9** |
+| bord à récupérer | 17,6 | 27,7 | 29,6 |
+| ceinture | 28,7 | 35,9 | 37,9 |
+| peau | 27,9 | 37,5 | 42,5 |
+| fond | 36,2 | — | — |
+
+ΔE < 25 est le P95 de la dispersion propre du tissu. Trente-deux pas de couloir
+8-connexe ne font pas un halo de 32 px : faute de couloir, la peau intacte n'est
+jamais franchie.
+
+**Le garde-fou du conseil a servi dès le premier essai** : il a sorti du masque
+**12 342 px de pieds** et 1 034 px de chevilles (couleur 218,170,138 — de la
+peau) que SAM y avait mis, plus la ceinture (8 364 px).
