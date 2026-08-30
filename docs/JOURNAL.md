@@ -1285,3 +1285,38 @@ Le profil de luminance moyenné sur les DEUX jambes donnait sa plus forte
 vêtement passe d'une pièce à deux jambes, la moyenne saute mécaniquement.
 L'indicateur comptait l'entrejambe comme un défaut. Mesuré sur **une** jambe,
 sous la fourche, il dit enfin quelque chose.
+
+## La boucle est fermée : 3D → texture → rig 2D
+
+Le cadrage de la caméra ne pouvait pas être « confortable », il devait être
+CALCULÉ. Première version, `ortho_scale = max(largeur, hauteur) × 1,05` :
+
+    hauteur   2 621 px contre 2 368  → 10,7 % trop grand
+    sommet    y = 65 contre 250      → 185 px trop haut
+    IoU des silhouettes              → 64,6 %
+
+⭐ Deux nombres du gabarit 2D suffisent à poser la caméra : le personnage occupe
+**86,04 %** de la hauteur de l'image, son sommet est à **9,08 %** du haut.
+
+    ortho_scale = H / 0,8604
+    cam_z       = z_sommet + 0,0908 × ortho_scale − ortho_scale / 2
+
+Après : hauteur 2 368 contre 2 369 (**1 px**), sommet 250 contre 249 (**1 px**),
+axe identique, **IoU 89,8 %**. Les 10 % restants sont l'écart entre le corps
+Higgsfield et sa reconstruction — il n'est pas réductible par le cadrage.
+
+### Le fit, une fois la texture 3D passée dans le rig 2D
+
+| pose | pantalon 2D (P95) | **pantalon 3D (P95)** |
+|---|---|---|
+| jambes écartées 9° | 0,58 px | **0,31 px** |
+| corpulence 0,85 | 0,55 px | **0,28 px** |
+| corpulence 1,25 | 0,80 px | **0,32 px** |
+
+**Deux fois meilleur**, sur 801 sommets soudés à 100 % au corps.
+
+> ⭐ Le pipeline complet tient en une phrase : une image Higgsfield devient un
+> corps 3D (TRELLIS.2, 48 s), le vêtement est une coque de ce corps, on le rend
+> en caméra orthographique cadrée sur le gabarit 2D, et cette texture entre dans
+> le rig 2D construit hier — squelette mesuré, maillage contour, weld, couleur
+> Lab. La 3D est un ATELIER ; le moteur reste 2D et déterministe.

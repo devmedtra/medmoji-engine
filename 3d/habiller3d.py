@@ -330,13 +330,27 @@ def main():
     # 🔴 Une caméra en perspective déforme : les jambes du bas paraîtraient
     # plus étroites que le haut, et la texture ne se superposerait plus au
     # corps 2D. L'orthographique conserve les proportions exactement.
+    # 🔴 UN CADRAGE ARBITRAIRE NE SE SUPERPOSE PAS. Première version :
+    # `ortho_scale = max(largeur, hauteur) * 1,05`, un cadrage confortable mais
+    # sans rapport avec le gabarit 2D. Mesuré : le rendu sortait 10,7 % trop
+    # grand (2 621 px contre 2 368) et décalé de 185 px vers le haut — IoU des
+    # silhouettes 64,6 %. L'axe, lui, tombait juste (768 contre 767).
+    #
+    # ⭐ Le cadrage se CALCULE depuis le corps 2D, qui est la référence :
+    #     le personnage y occupe 2 368 px sur 2 752, soit 86,04 % de la hauteur
+    #     son sommet est à 250 px du haut, soit 9,08 %
+    # Ces deux nombres suffisent à poser la caméra exactement.
+    OCCUP, SOMMET = 2368 / 2752, 250 / 2752
     cam_d = bpy.data.cameras.new('cam')
     cam_d.type = 'ORTHO'
-    cam_d.ortho_scale = max(hi.x - lo.x, H) * 1.05
+    cam_d.ortho_scale = H / OCCUP
     cam = bpy.data.objects.new('cam', cam_d)
     bpy.context.scene.collection.objects.link(cam)
     centre = (lo + hi) / 2
-    cam.location = (centre.x, lo.y - H * 2, centre.z)
+    # le haut de la vue vaut cam_z + ortho/2 ; on veut que le sommet du modèle
+    # y tombe à SOMMET de la hauteur visible
+    cam_z = hi.z + SOMMET * cam_d.ortho_scale - cam_d.ortho_scale / 2
+    cam.location = (centre.x, lo.y - H * 2, cam_z)
     cam.rotation_euler = (1.5708, 0, 0)
     bpy.context.scene.camera = cam
 
