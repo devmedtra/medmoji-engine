@@ -463,29 +463,49 @@ def effacer_sous_vetement(orig, src):
     # précisément les ARÊTES que le modèle recopie en couture. On les avale,
     # borné au corps : quelques pixels de peau remplacés par de la peau voisine
     # ne changent rien, et la zone est de toute façon recouverte.
-    sv = ndimage.binary_dilation(sv, np.ones((7, 7))) & corps
+    # Rayon MESURÉ sur le corps nu : sous le bord du sous-vêtement, la peau
+    # porte son OMBRE — luminance 151 contre 160 juste en dessous, sur 4 à 5 px.
+    # Cette ombre est une arête franche que le modèle recopie tout autant que le
+    # tissu lui-même ; une dilatation de 3 px la laissait dehors. 8 px couvrent
+    # l'ombre (5 px) et la frange d'anti-crénelage (2 px) avec une marge.
+    sv = ndimage.binary_dilation(sv, np.ones((17, 17))) & corps
     a = np.asarray(orig).astype(float).copy()
     # La peau juste au-dessus et juste en dessous, colonne par colonne : le
     # dégradé du corps est conservé, aucune couleur n'est inventée.
-    # ⚠️ N'ÉCRIRE QUE DANS `sv`. Première version : `a[y0:y1+1, x] = …` écrasait
-    # toute la colonne entre le premier et le dernier pixel du sous-vêtement,
-    # trous compris — écart de 100/255 mesuré hors du masque, sur des pixels
-    # qui devaient rester intacts.
-    for x in np.where(sv.any(0))[0]:
-        col = np.where(sv[:, x])[0]
-        y0, y1 = col.min(), col.max()
-        pa = a[max(0, y0 - 6):y0, x][corps[max(0, y0 - 6):y0, x]]
-        pb = a[y1 + 1:y1 + 7, x][corps[y1 + 1:y1 + 7, x]]
-        if not len(pa) and not len(pb):
-            continue
-        ca = pa.mean(0) if len(pa) else pb.mean(0)
-        cb = pb.mean(0) if len(pb) else ca
-        t = ((col - y0) / max(1, y1 - y0))[:, None]
-        a[col, x] = ca[None, :] * (1 - t) + cb[None, :] * t
-    # un léger flou dans la seule zone remplacée : pas d'arête résiduelle
-    lisse = np.asarray(Image.fromarray(a.round().astype(np.uint8))
-                       .filter(ImageFilter.GaussianBlur(9))).astype(float)
-    a[sv] = lisse[sv]
+    # 🔴 UNE INTERPOLATION LINÉAIRE LAISSE UNE CASSURE DE PENTE.
+    # Première version : par colonne, dégradé droit entre la peau du dessus et
+    # celle du dessous. Les VALEURS se raccordaient, mais pas les PENTES — la
+    # peau réelle a un modelé, le dégradé est plat. Gradient vertical mesuré sur
+    # l'init, au bas du sous-vêtement effacé :
+    #
+    #       71,0 %  0,08      72,5 %  0,51
+    #       71,5 %  0,14      73,0 %  1,36   ← la cassure
+    #       72,0 %  0,17      73,5 %  0,48
+    #
+    # Un membre du conseil l'avait vue sur l'image : « l'interpolation de peau
+    # présente un raccord anguleux au bas du boxer ; le modèle s'est accroché à
+    # cette discontinuité de gradient ». C'est la couture qui survivait.
+    #
+    # ⭐ La diffusion harmonique n'a pas ce défaut : elle résout Δu = 0 dans la
+    # zone, donc la surface obtenue est celle de moindre énergie qui prolonge le
+    # bord — sans extremum interne, sans cassure. Amorcée au plus proche voisin
+    # valide, relaxée sur la seule boîte englobante du masque.
+    ys, xs = np.where(sv)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    marge = 24
+    y0, x0 = max(0, y0 - marge), max(0, x0 - marge)
+    y1, x1 = min(a.shape[0], y1 + marge), min(a.shape[1], x1 + marge)
+    boite = a[y0:y1, x0:x1].copy()
+    trou = sv[y0:y1, x0:x1]
+    # ⚠️ N'amorcer QUE dans le trou : `boite = boite[ind]` remplaçait toute la
+    # boîte par son plus proche voisin, y compris les pixels valides — 72/255
+    # d'écart mesuré hors du masque, sur des pixels à recopier à l'identique.
+    ind = ndimage.distance_transform_edt(trou, return_indices=True)[1]
+    boite[trou] = boite[ind[0], ind[1]][trou]        # amorce : plus proche bord
+    for _ in range(400):
+        lisse = ndimage.uniform_filter(boite, size=(5, 5, 1))
+        boite[trou] = lisse[trou]                    # le bord reste fixe
+    a[y0:y1, x0:x1] = boite
     return Image.fromarray(a.round().astype(np.uint8)), int(sv.sum())
 
 

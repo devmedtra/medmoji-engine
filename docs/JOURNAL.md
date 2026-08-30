@@ -731,3 +731,102 @@ de rang de Spearman entre L\*_source et L\*_post, elle, la verrait.
 | rouge | 1,01 | **0,9999** |
 | bleu | 1,00 | **0,9999** |
 | violet | 1,01 | **0,9999** |
+
+---
+
+# 30 août 2026 — le vêtement devient un ASSET RIGGÉ
+
+Med : « le pantalon ne doit jamais être une simple PNG placée par-dessus le
+personnage. Il doit être un véritable asset vestimentaire attaché au skeleton.
+[…] au lieu de créer un pantalon olive, un rouge, un bleu et un violet comme
+quatre images différentes, il faut avoir un seul pantalon maître avec une
+propriété material ou color. »
+
+La Fabrique ne produit plus le livrable : elle produit la **texture maître**.
+
+## Le squelette se mesure, il ne se place pas
+
+| articulation | comment elle est trouvée |
+|---|---|
+| bassin | barycentre du sous-vêtement (teinte b\* < 4) |
+| hanches | première ligne, en descendant, coupant le corps en deux segments larges |
+| genoux | **premier minimum local** du profil de largeur du membre |
+| chevilles | second minimum local, avant l'élargissement du pied |
+
+Trois instruments cassés avant d'y arriver, tous attrapés par des valeurs
+absurdes ou par le **témoin de symétrie** :
+
+1. « premier et dernier segment de la ligne » → en bas, le pied se sépare en
+   orteils : *genou de 1 px de large*, et 6 points d'écart entre les deux
+   genoux d'un corps symétrique.
+2. minimum **global** de largeur → c'est la cheville, dans les deux fenêtres :
+   *tibia de 16 px*.
+3. proéminence « trois écarts-types du bruit » = 8,1 px → juste au-dessus du
+   genou droit (7,3), donc deux minima à gauche et un seul à droite, sur des
+   profils identiques à 3 px près.
+
+> ⭐ Le seuil de proéminence ne se règle pas, il se **déduit de la symétrie** :
+> on retient le seuil le plus strict qui donne deux minima de chaque côté, aux
+> mêmes hauteurs. Le critère n'est pas une valeur, c'est une propriété du sujet.
+> Résultat : genoux à 80,3 % et 80,9 %, chevilles à 91,7 % et 92,3 % — 0,59
+> point d'écart.
+
+## Les poids : bone heat, pas inverse-distance
+
+Med, 17 août : « fouille internet, c'est sûr que quelqu'un l'a déjà fait ». Des
+poids en inverse-distance déchirent, parce qu'un point de la cuisse gauche
+« voit » l'os de la cuisse droite **à travers le vide de l'entrejambe**. La
+chaleur, elle, doit longer le tissu : elle ne traverse pas.
+
+Trois corrections successives, chacune mesurée :
+
+| symptôme | cause | correctif |
+|---|---|---|
+| 114 sommets sans aucun poids | pas de condition sur les autres os | u = 1 sur l'os, **u = 0 sur tous les autres** (Baran & Popović) |
+| toujours 114 | `where(masque, v, 0)` fait du fond un **puits** : la chaleur fuit par le contour | flux nul au bord — moyenner sur les seuls voisins de tissu |
+| 105, tous à la ceinture | **Jacobi converge en O(n²)** : 62 500 pas nécessaires pour 250 px, j'en faisais 600 | résolution **multi-échelle**, 1/8 → 1/4 → 1/2 → 1/1 |
+
+Et un os manquant : sans la chaîne `taille_bassin → bassin_hanche`, la ceinture
+n'avait rien à suivre — les os des jambes commencent à 72,1 %, un pantalon monte
+à 52,4 %.
+
+**Témoins finaux** : somme des poids `1,000` exactement sur les 1 108 sommets,
+zéro orphelin, **zéro poids traversant l'entrejambe**.
+
+## Ce que le même asset produit, sans rien régénérer
+
+| variation | aire pose/repos (min · méd · max) |
+|---|---|
+| repos | 0,96 · 1,00 · 1,04 |
+| jambes écartées 9° | 0,85 · 0,99 · 2,46 |
+| corpulence 0,88 | 0,84 · 0,88 · 0,92 |
+| corpulence 1,22 | 1,17 · 1,22 · 1,27 |
+| couleur rouge | 0,96 · 1,00 · 1,04 |
+
+Aucun triangle ne s'effondre. La couleur est un argument d'appel, plus un
+fichier — la luminance du tissu est conservée, la chromie imposée, en Lab.
+
+⚠️ Une erreur au passage : la première teinture a repeint **tout le personnage**
+en rouge. `out[:,:,3] > 16` désignait toute la silhouette, l'image étant déjà
+composée sur le corps. Les pixels écrits par le vêtement sont maintenant suivis
+explicitement.
+
+## La couture : ni le sous-vêtement, ni le prompt
+
+Saut de luminance à la fourche, mesuré sur trois versions :
+
+| | saut | où |
+|---|---|---|
+| avant | 5,3 | 71,8 % |
+| sous-vêtement effacé | 4,0 | 71,5 % |
+| + diffusion harmonique de l'init | 4,4 | 71,8 % |
+| **sans « cargo », sans poches** | **4,0** | 71,2 % |
+
+Le gradient de l'init au bas du boxer est pourtant passé de **1,36 à 0,48**,
+sous le bruit de fond (0,54). La couture ne vient donc plus de là — et elle ne
+vient pas du prompt non plus. Elle tombe à **71,2 %, la hauteur des hanches
+mesurées (72,1 %)** : c'est la fourche, là où la silhouette se sépare en deux
+jambes et où un vrai pantalon porte effectivement une couture d'entrejambe.
+
+Réduite de 25 %, expliquée, non éliminée. Elle appartient désormais à la
+texture, donc au domaine où le rig peut la corriger.
