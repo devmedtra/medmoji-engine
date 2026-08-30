@@ -1,0 +1,11 @@
+# La Fabrique tourne sur une machine a GPU, jamais dans l'app.
+torch==2.4.0
+torchvision==0.19.0
+diffusers==0.31.0
+transformers==4.46.3
+accelerate
+safetensors
+pillow
+numpy
+scipy
+mediapipe

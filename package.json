@@ -1,0 +1,10 @@
+{
+  "name": "medmoji-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moteur d'assemblage d'avatars 2D deterministe",
+  "scripts": {
+    "temoins": "tsx moteur/temoins.ts",
+    "bout-en-bout": "tsx moteur/bout-en-bout.ts"
+  }
+}

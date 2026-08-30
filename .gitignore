@@ -1,0 +1,19 @@
+# jamais de secrets
+.env*
+*.key
+*credentials*
+*.task
+
+# sorties de la fabrique
+*.png
+*.jpg
+*.webp
+*.mp4
+sortie*/
+catalogue-test/
+
+# dependances
+node_modules/
+__pycache__/
+*.pyc
+venv/
