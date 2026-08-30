@@ -830,3 +830,103 @@ jambes et où un vrai pantalon porte effectivement une couture d'entrejambe.
 
 Réduite de 25 %, expliquée, non éliminée. Elle appartient désormais à la
 texture, donc au domaine où le rig peut la corriger.
+
+---
+
+# 30 août 2026 — le fit se mesure, et la littérature le documente
+
+Med : « fouille internet au maximum pour appuyer tes mesures pour que le
+pantalon fit parfaitement ». Quatre sources, quatre corrections.
+
+## 1. Les proportions humaines PROUVENT qu'il fallait mesurer
+
+Drillis & Contini (1966), reproduit dans Winter, *Biomechanics and Motor
+Control of Human Movement*, fig. 4.1 — segments en fraction de la stature,
+mesurés depuis le sol :
+
+| repère | humain (depuis le sol) | humain (depuis le haut) | **notre personnage** |
+|---|---|---|---|
+| cheville | 0,039 H | 96,1 % | **91,7 – 92,3 %** |
+| genou | 0,285 H | 71,5 % | **80,3 – 80,9 %** |
+| entrejambe | 0,485 H | 51,5 % | **72,1 %** |
+| épaules | 0,818 H | 18,2 % | **31,0 %** |
+| menton | 0,870 H | 13,0 % | **27,0 %** |
+
+> 🔴 **Appliquer un canon humain aurait été catastrophique.** Le personnage est
+> un cartoon : sa tête occupe le double de la proportion humaine, ses jambes
+> commencent 20 points plus bas. Aucune constante empruntée n'aurait tenu.
+
+Ce que le canon apporte quand même : un **contrôle de vraisemblance interne**.
+Chez l'humain, cuisse (entrejambe→genou) / tibia (genou→cheville) = 20,0 / 24,6
+= 0,81. Chez notre personnage : 8,2 / 11,4 = **0,72**. Onze pour cent d'écart —
+même famille de proportions, donc les articulations ne sont pas aberrantes.
+
+## 2. Une grille régulière ne suit pas les contours  (SpriteToMesh, 2026)
+
+> « Grid-based interior placement achieves good triangle regularity but fails to
+> follow visual boundaries, confirming the need for contour-aware placement. »
+> — arXiv 2602.21153
+
+C'était exactement mon défaut : 24 × 48 sommets régulièrement espacés, dont
+aucun sur le bord. Pipeline repris : **contour → Douglas-Peucker → densification
+à pas constant → sommets intérieurs en quinconce → Delaunay**. Témoin :
+distance des sommets de bord au contour, **médiane 1,0 px**.
+
+## 3. Le « prune » et le « weld » de Spine
+
+> « Using prune to remove unnecessary weights and limit the number of bones that
+> can affect a vertex can reduce vertex transforms required. »
+> « The Weld button matches weights across meshes, effectively welding them
+> together to allow multiple meshes to deform identically, as if they were a
+> single image. »
+> — Spine User Guide, *Weights view*
+
+**Prune** : 4 os par sommet, la limite usuelle. **Weld** : ⭐ la clé du fit — un
+sommet de vêtement adopte les poids du CORPS au point le plus proche, donc les
+deux se déforment à l'identique par construction.
+
+## 4. Le témoin du fit — et pourquoi le premier était faux
+
+🔴 Première version : « distance du sommet de vêtement au corps le plus
+proche », comparée entre le repos et la pose. Elle criait au glissement sur la
+CORPULENCE — 6,10 px de P95 — alors que rien ne glissait : **quand le corps
+s'élargit de 22 %, toutes les distances s'élargissent avec lui.** Le témoin
+mesurait l'échelle, pas la dérive.
+
+⭐ Le fit se lit en coordonnées **barycentriques** : chaque sommet du vêtement
+exprimé dans le triangle de corps qui le porte. Ces coordonnées sont invariantes
+par toute transformation affine — rotation, échelle, cisaillement.
+
+**Glissement mesuré, P95 en pixels :**
+
+| pose | grille, sans weld | contour + Delaunay + weld |
+|---|---|---|
+| jambes écartées 9° | 2,16 | **0,58** |
+| genou plié 20° | 2,15 | **0,72** |
+| corpulence 1,22 | 3,59 | **0,80** |
+| corpulence 0,88 | 2,47 | **0,55** |
+| pire cas (max) | 46,42 | **7,64** |
+
+Divisé par **3,7 à 4,5**. Et la mesure intermédiaire a nommé le reste : avec un
+weld limité aux sommets tombant sur le corps, la dérive résiduelle était
+**entièrement** sur les 30 % de sommets hors silhouette (P95 6,71 px contre
+0,92). Un pan qui dépasse la hanche doit suivre la hanche — weld à 100 %.
+
+## 5. Delaunay n'est pas contraint
+
+Sur une forme concave, il tend des triangles au-dessus des creux. Tester leur
+seul centre rejetait aussi les triangles **légitimes et fins** de la fourche :
+1,3 % du vêtement sans aucun triangle, dont un trou de 1 489 px pile à
+l'entrejambe — visible à l'œil comme une entaille.
+
+Deux correctifs : l'érosion qui borne les sommets intérieurs passe de 0,8 × pas
+(21 px, plus large que la fourche elle-même) à 0,3 × pas, et le test de triangle
+porte sur la **surface** — sept points échantillonnés, majorité dans le masque —
+au lieu du seul centre. Couverture 98,7 → **98,9 %**, plus grand trou 1 489 →
+**773 px**, débordement hors masque 0,4 %.
+
+**Sources**
+- Winter, *Biomechanics and Motor Control of Human Movement*, fig. 4.1
+  (Drillis & Contini 1966) — https://courses.grainger.illinois.edu/me481/sp2021/Anthro-Winter.pdf
+- SpriteToMesh, arXiv 2602.21153 — https://arxiv.org/html/2602.21153v1
+- Spine User Guide, *Weights view* — https://en.esotericsoftware.com/spine-weights

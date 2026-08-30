@@ -252,8 +252,59 @@ def mesurer(chemin):
     # Med : « la ceinture doit suivre le bassin, les parties supérieures
     # doivent suivre les cuisses ». Il faut donc les deux maillons manquants :
     # la taille jusqu'au bassin, puis le bassin jusqu'à chaque hanche.
+    # ── LE TRONC ET LE COU ────────────────────────────────────────────────
+    # Mesurés sur le profil de largeur totale, du crâne au bassin :
+    #     27,0 %  180 px   ← MINIMUM entre le crâne et les épaules : le cou
+    #     31,0 %  +166 px  ← plus grand SAUT de largeur : les épaules
+    # Cohérent avec le menton mesuré par MediaPipe (28,1 %) — deux instruments
+    # indépendants qui se recoupent.
+    #
+    # 🔴 Ils ne servent pas qu'aux hauts. Sans eux, la CORPULENCE ne peut pas
+    # s'appliquer au corps : mesurée à 0,88, le sous-vêtement réapparaissait sur
+    # les côtés d'un pantalon rétréci sur un corps resté large.
+    larg = []
+    for pct in np.arange(2, 64, 1.0):
+        y = h0 + int(Hp * pct / 100)
+        s = segments(corps[y])
+        if s:
+            larg.append((pct, s[-1][1] - s[0][0] + 1))
+    Wl = np.array([w for _, w in larg])
+    Pl = np.array([p for p, _ in larg])
+    i_ep = int(np.argmax(np.diff(Wl))) + 1
+    i_cou = int(np.argmin(Wl[:i_ep]))
+    y_epaules = h0 + Hp * Pl[i_ep] / 100
+    y_cou = h0 + Hp * Pl[i_cou] / 100
+    print(f'  cou {Pl[i_cou]:.1f} % ({Wl[i_cou]} px) · '
+          f'épaules {Pl[i_ep]:.1f} % (saut +{int(np.diff(Wl).max())} px)')
+
     y_taille = float(np.where(sv.any(1))[0].min())
     os = [{
+        'nom': 'bassin_torse',
+        'parent': None,
+        'tete': [bassin[0] / W, bassin[1] / H],
+        'queue': [bassin[0] / W, y_epaules / H],
+        'pente': 0.0,
+        'longueur_px': float(bassin[1] - y_epaules),
+        'morphable': True,
+    }, {
+        'nom': 'torse_cou',
+        'parent': 'bassin_torse',
+        'tete': [bassin[0] / W, y_epaules / H],
+        'queue': [bassin[0] / W, y_cou / H],
+        'pente': 0.0,
+        'longueur_px': float(y_epaules - y_cou),
+        'morphable': True,
+    }, {
+        # ⭐ La tête ne grossit PAS avec la corpulence — c'est ce qui distingue
+        # un personnage fort d'un personnage simplement agrandi.
+        'nom': 'cou_tete',
+        'parent': 'torse_cou',
+        'tete': [bassin[0] / W, y_cou / H],
+        'queue': [bassin[0] / W, h0 / H],
+        'pente': 0.0,
+        'longueur_px': float(y_cou - h0),
+        'morphable': False,
+    }, {
         'nom': 'taille_bassin',
         'parent': None,
         'tete': [bassin[0] / W, y_taille / H],
@@ -270,6 +321,7 @@ def mesurer(chemin):
             'pente': 0.0,
             'longueur_px': float(np.hypot(membre[0][1] - bassin[0],
                                           membre[0][0] - bassin[1])),
+            'morphable': True,
         })
     for nom, membre, i_g, i_c in (('gauche', gauche, ig_g, ic_g),
                                   ('droite', droite, ig_d, ic_d)):
@@ -297,6 +349,9 @@ def mesurer(chemin):
                 'pente': pente,
                 'longueur_px': float(np.hypot(pts[b_][0] - pts[a_][0],
                                               pts[b_][1] - pts[a_][1])),
+                # ⭐ Les PIEDS ne s'élargissent pas avec la corpulence : une
+                # pointure ne suit pas un tour de taille.
+                'morphable': b_ != 'pied',
             })
 
     return {

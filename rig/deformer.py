@@ -104,12 +104,24 @@ def transformations(sq, pose, corpulence=1.0):
         return cache[nom]
 
     mats = {nom: matrice(nom) for nom in par_nom}
+    # 🔴 LA CORPULENCE N'EST PAS UNE ÉCHELLE GLOBALE. Appliquée à tout, elle
+    # produit un personnage AGRANDI, pas un personnage fort : la tête grossit
+    # avec le ventre et les pieds avec les cuisses.
+    #
+    # ⭐ Elle s'applique donc os par os, selon le drapeau `morphable` posé à la
+    # mesure : tronc, bassin et jambes oui ; tête et pieds non. La transition
+    # entre les deux n'a pas à être dessinée — le skinning la produit, puisqu'un
+    # sommet à la frontière est influencé par les deux et reçoit une échelle
+    # intermédiaire.
     if corpulence != 1.0:
         cx = sq['racine']['position'][0] * W
-        S = np.array([[corpulence, 0., cx * (1 - corpulence)], [0., 1., 0.]])
-        for nom in mats:
-            M = np.vstack([mats[nom], [0., 0., 1.]])
-            mats[nom] = (np.vstack([S, [0., 0., 1.]]) @ M)[:2]
+        for o in sq['os']:
+            if not o.get('morphable', True):
+                continue
+            k = corpulence
+            S = np.array([[k, 0., cx * (1 - k)], [0., 1., 0.], [0., 0., 1.]])
+            M = np.vstack([mats[o['nom']], [0., 0., 1.]])
+            mats[o['nom']] = (S @ M)[:2]
     return mats
 
 

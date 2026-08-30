@@ -17,6 +17,51 @@
   },
   "os": [
     {
+      "nom": "bassin_torse",
+      "parent": null,
+      "tete": [
+        0.499472011563195,
+        0.6387601907080691
+      ],
+      "queue": [
+        0.499472011563195,
+        0.35758720930232557
+      ],
+      "pente": 0.0,
+      "longueur_px": 773.7880448286061,
+      "morphable": true
+    },
+    {
+      "nom": "torse_cou",
+      "parent": "bassin_torse",
+      "tete": [
+        0.499472011563195,
+        0.35758720930232557
+      ],
+      "queue": [
+        0.499472011563195,
+        0.3231686046511628
+      ],
+      "pente": 0.0,
+      "longueur_px": 94.72000000000003,
+      "morphable": true
+    },
+    {
+      "nom": "cou_tete",
+      "parent": "torse_cou",
+      "tete": [
+        0.499472011563195,
+        0.3231686046511628
+      ],
+      "queue": [
+        0.499472011563195,
+        0.09084302325581395
+      ],
+      "pente": 0.0,
+      "longueur_px": 639.36,
+      "morphable": false
+    },
+    {
       "nom": "taille_bassin",
       "parent": null,
       "tete": [
@@ -42,7 +87,8 @@
         0.7111191860465116
       ],
       "pente": 0.0,
-      "longueur_px": 235.48091800632116
+      "longueur_px": 235.48091800632116,
+      "morphable": true
     },
     {
       "nom": "bassin_hanche_droite",
@@ -56,7 +102,8 @@
         0.7111191860465116
       ],
       "pente": 0.0,
-      "longueur_px": 233.95742111300765
+      "longueur_px": 233.95742111300765,
+      "morphable": true
     },
     {
       "nom": "hanche_genou_gauche",
@@ -70,7 +117,8 @@
         0.7816133720930233
       ],
       "pente": 0.009247600705627126,
-      "longueur_px": 194.0025773024678
+      "longueur_px": 194.0025773024678,
+      "morphable": true
     },
     {
       "nom": "genou_cheville_gauche",
@@ -84,7 +132,8 @@
         0.8800872093023255
       ],
       "pente": -0.01355990167852547,
-      "longueur_px": 271.01660465735307
+      "longueur_px": 271.01660465735307,
+      "morphable": true
     },
     {
       "nom": "cheville_pied_gauche",
@@ -98,7 +147,8 @@
         0.9385901162790697
       ],
       "pente": -0.39264227074309765,
-      "longueur_px": 161.9846529081622
+      "longueur_px": 161.9846529081622,
+      "morphable": false
     },
     {
       "nom": "hanche_genou_droite",
@@ -112,7 +162,8 @@
         0.7867005813953488
       ],
       "pente": -0.013763867711236746,
-      "longueur_px": 208.005408583527
+      "longueur_px": 208.005408583527,
+      "morphable": true
     },
     {
       "nom": "genou_cheville_droite",
@@ -126,7 +177,8 @@
         0.8851744186046512
       ],
       "pente": 0.011285829972068529,
-      "longueur_px": 271.02951868754076
+      "longueur_px": 271.02951868754076,
+      "morphable": true
     },
     {
       "nom": "cheville_pied_droite",
@@ -140,7 +192,8 @@
         0.9385901162790697
       ],
       "pente": 0.45849420849420824,
-      "longueur_px": 148.40718137371493
+      "longueur_px": 148.40718137371493,
+      "morphable": false
     }
   ]
 }
